@@ -1,0 +1,56 @@
+# Copyright (C) 2022 Daniel Stenberg, <daniel@haxx.se>, et al.
+#
+# SPDX-License-Identifier: curl
+
+name: proselint
+
+on:
+  push:
+    branches:
+    - master
+    - '*/ci'
+  pull_request:
+    branches:
+    - master
+
+jobs:
+  check:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: install prereqs
+      run: sudo apt-get install python3-proselint
+
+    # config file help: https://github.com/amperser/proselint/
+    - name: create proselint config
+      run: grep '^## C:' .github/workflows/proselint.yml | sed 's/^## C://' > $HOME/.proselintrc
+
+    - name: check prose
+      run: a=`git ls-files '*.md' | grep -v docs/CHECKSRC.md` && proselint $a README
+
+    - name: create second proselint config
+      run: grep '^## C2:' .github/workflows/proselint.yml | sed 's/^## C2://' > $HOME/.proselintrc
+
+    - name: check special prose
+      run: a=docs/CHECKSRC.md && proselint $a
+
+## C: {
+## C:    "checks": {
+## C:      "typography.diacritical_marks": false,
+## C:      "typography.symbols": false,
+## C:      "annotations.misc": false
+## C:    }
+## C: }
+
+# This is for CHECKSRC and files with agressive exclamation mark needs
+## C2: {
+## C2:    "checks": {
+## C2:      "typography.diacritical_marks": false,
+## C2:      "typography.symbols": false,
+## C2:      "typography.exclamation": false
+## C2:      "annotations.misc": false,
+## C2:    }
+## C2: }
