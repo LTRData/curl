@@ -288,7 +288,7 @@ April: added the cyassl backend (later renamed to WolfSSL)
  July: Added support for Schannel (native Windows TLS backend) and Darwin SSL
  (Native Mac OS X and iOS TLS backend).
 
- Supports metalink
+ Supports Metalink
 
  October: SSH-agent support.
 
