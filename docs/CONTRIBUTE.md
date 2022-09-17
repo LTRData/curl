@@ -267,17 +267,7 @@ can use diff recursively:
     diff -ur curl-original-dir curl-modified-sources-dir > my-fixes.diff
 
 The GNU diff and GNU patch tools exist for virtually all platforms, including
-all kinds of Unixes and Windows:
-
-For unix-like operating systems:
-
- - [https://savannah.gnu.org/projects/patch/](https://savannah.gnu.org/projects/patch/)
- - [https://www.gnu.org/software/diffutils/](https://www.gnu.org/software/diffutils/)
-
-For Windows:
-
- - [https://gnuwin32.sourceforge.io/packages/patch.htm](https://gnuwin32.sourceforge.io/packages/patch.htm)
- - [https://gnuwin32.sourceforge.io/packages/diffutils.htm](https://gnuwin32.sourceforge.io/packages/diffutils.htm)
+all kinds of Unixes and Windows.
 
 ### Useful resources
  - [Webinar on getting code into cURL](https://www.youtube.com/watch?v=QmZ3W1d6LQI)
