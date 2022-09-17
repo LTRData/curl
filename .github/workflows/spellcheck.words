@@ -649,3 +649,6 @@ cyassl
 GSSAPI
 prepended
 monospace
+SIGALRM
+iconv
+codeset
