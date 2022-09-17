@@ -33,6 +33,7 @@ while(<F>) {
         $_ =~ s/CURL_IPRESOLVE_[A-Z0-9_]*//g;
         $_ =~ s/CURL_READFUNC_[A-Z0-9_]*//g;
         $_ =~ s/CURL_REDIR_[A-Z0-9_]*//g;
+        $_ =~ s/CURL_CSELECT_[A-Z0-9_]*//g;
         $_ =~ s/CURLPIPE_[A-Z0-9_]*//g;
         $_ =~ s/CURLSHOPT_[A-Z0-9_]*//g;
         $_ =~ s/CURLAUTH_[A-Z0-9_]*//g;
@@ -46,6 +47,7 @@ while(<F>) {
         $_ =~ s/CURLMIMEOPT_[A-Z0-9_]*//g;
         $_ =~ s/CURLSSLBACKEND_[A-Z0-9_]*//g;
         $_ =~ s/CURL_PROGRESSFUNC_CONTINUE//g;
+        $_ =~ s/CURL_HET_DEFAULT//g;
         print O $_;
     }
 }
