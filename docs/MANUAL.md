@@ -450,7 +450,7 @@ this:
 
     curl -c cookies.txt www.example.com
 
-Note that by specifying `-b` you enable the cookie enginge and with `-L` you
+Note that by specifying `-b` you enable the cookie engine and with `-L` you
 can make curl follow a `location:` (which often is used in combination with
 cookies). If a site sends cookies and a location field, you can use a
 non-existing file to trigger the cookie awareness like:
