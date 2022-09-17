@@ -7,8 +7,14 @@
 # Output: the same file, minus the SYNOPSIS and the EXAMPLE sections
 #
 
+my $f = $ARGV[0];
+my $o = $ARGV[1];
+
+open(F, "<$f") or die;
+open(O, ">$o") or die;
+
 my $ignore = 0;
-while(<STDIN>) {
+while(<F>) {
     if($_ =~ /^.SH (SYNOPSIS|EXAMPLE|\"SEE ALSO\"|SEE ALSO)/) {
         $ignore = 1;
     }
@@ -16,7 +22,9 @@ while(<STDIN>) {
         $ignore = 0;
     }
     elsif(!$ignore) {
-        print $_;
+        print O $_;
     }
 }
+close(F);
+close(O);
 
