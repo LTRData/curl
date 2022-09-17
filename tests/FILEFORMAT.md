@@ -226,8 +226,8 @@ and used as "raw" data.
 should be cut off from the data before sending or comparing it.
 
 For FTP file listings, the `<data>` section will be used *only* if you make
-sure that there has been a CWD done first to a directory named `test-[num]`
-where [num] is the test case number. Otherwise the ftp server can't know from
+sure that there has been a CWD done first to a directory named `test-[NUM]`
+where `NUM` is the test case number. Otherwise the ftp server can't know from
 which test file to load the list content.
 
 ### `<dataNUM>`
