@@ -45,8 +45,9 @@ Consider the following table while looking at pull request failures:
  | CodeQL                              | stable | new findings               |
 
 Sometimes the tests fail due to a dependency service temporarily being offline
-or otherwise unavailable, eg. package downloads. In this case you can just
-try to update your pull requests to rerun the tests later as described below.
+or otherwise unavailable, for example package downloads. In this case you can
+just try to update your pull requests to rerun the tests later as described
+below.
 
 ## CI servers
 
