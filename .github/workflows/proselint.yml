@@ -52,8 +52,8 @@ jobs:
           "checks": {
             "typography.diacritical_marks": false,
             "typography.symbols": false,
-            "typography.exclamation": false
-            "annotations.misc": false,
+            "typography.exclamation": false,
+            "annotations.misc": false
           }
         }
         JSON
