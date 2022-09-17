@@ -24,16 +24,19 @@ while(<F>) {
     elsif(!$ignore) {
         # filter out mentioned CURLE_ names
         $_ =~ s/CURLE_[A-Z0-9_]*//g;
-        # filter out mentioned CURLOPT_ names
         $_ =~ s/CURLOPT_[A-Z0-9_]*//g;
-        # filter out mentioned CURL_DISABLE_ names
+        $_ =~ s/CURLMOPT_[A-Z0-9_]*//g;
         $_ =~ s/CURL_DISABLE_[A-Z0-9_]*//g;
-        # filter out mentioned CURL_RTSPREQ_ names
         $_ =~ s/CURL_RTSPREQ_[A-Z0-9_]*//g;
-        # filter out mentioned CURLPIPE_ names
+        $_ =~ s/CURL_TIMECOND_[A-Z0-9_]*//g;
+        $_ =~ s/CURL_IPRESOLVE_[A-Z0-9_]*//g;
         $_ =~ s/CURLPIPE_[A-Z0-9_]*//g;
-        # filter out mentioned CURLSHOPT_ names
         $_ =~ s/CURLSHOPT_[A-Z0-9_]*//g;
+        $_ =~ s/CURLAUTH_[A-Z0-9_]*//g;
+        $_ =~ s/CURLALTSVC_[A-Z0-9_]*//g;
+        $_ =~ s/CURLFTP_[A-Z0-9_]*//g;
+        $_ =~ s/CURLGSSAPI_[A-Z0-9_]*//g;
+        $_ =~ s/CURLMIMEOPT_[A-Z0-9_]*//g;
         print O $_;
     }
 }
