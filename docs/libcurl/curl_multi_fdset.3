@@ -43,16 +43,16 @@ otherwise remove any others. The \fIcurl_multi_perform(3)\fP function should
 be called as soon as one of them is ready to be read from or written to.
 
 If the \fIread_fd_set\fP argument is not a null pointer, it points to an
-object of type fd_set that on returns specifies the file descriptors to be
-checked for being ready to read.
+object of type \fBfd_set\fP that on returns specifies the file descriptors to
+be checked for being ready to read.
 
 If the \fIwrite_fd_set\fP argument is not a null pointer, it points to an
-object of type fd_set that on return specifies the file descriptors to be
-checked for being ready to write.
+object of type \fBfd_set\fP that on return specifies the file descriptors to
+be checked for being ready to write.
 
 If the \fIexc_fd_set\fP argument is not a null pointer, it points to an object
-of type fd_set that on return specifies the file descriptors to be checked for
-error conditions pending.
+of type \fBfd_set\fP that on return specifies the file descriptors to be
+checked for error conditions pending.
 
 If no file descriptors are set by libcurl, \fImax_fd\fP will contain -1 when
 this function returns. Otherwise it will contain the highest descriptor number
@@ -67,16 +67,17 @@ conditions to find a suitable value.
 
 When doing select(), you should use \fIcurl_multi_timeout(3)\fP to figure out
 how long to wait for action. Call \fIcurl_multi_perform(3)\fP even if no
-activity has been seen on the fd_sets after the timeout expires as otherwise
-internal retries and timeouts may not work as you would think and want.
+activity has been seen on the \fBfd_sets\fP after the timeout expires as
+otherwise internal retries and timeouts may not work as you would think and
+want.
 
 If one of the sockets used by libcurl happens to be larger than what can be
-set in an fd_set, which on POSIX systems means that the file descriptor is
-larger than FD_SETSIZE, then libcurl will try to not set it. Setting a too
-large file descriptor in an fd_set implies an out of bounds write which can
-cause crashes, or worse. The effect of NOT storing it will possibly save you
-from the crash, but will make your program NOT wait for sockets it should wait
-for...
+set in an \fBfd_set\fP, which on POSIX systems means that the file descriptor
+is larger than \fBFD_SETSIZE\fP, then libcurl will try to not set it. Setting
+a too large file descriptor in an \fBfd_set\fP implies an out of bounds write
+which can cause crashes, or worse. The effect of NOT storing it will possibly
+save you from the crash, but will make your program NOT wait for sockets it
+should wait for...
 .SH EXAMPLE
 .nf
  /* get file descriptors from the transfers */
@@ -93,7 +94,7 @@ for...
 .SH AVAILABILITY
 Added in 7.9.6
 .SH RETURN VALUE
-CURLMcode type, general libcurl multi interface error code. See
+\fBCURLMcode\fP type, general libcurl multi interface error code. See
 \fIlibcurl-errors(3)\fP
 .SH "SEE ALSO"
 .BR curl_multi_cleanup "(3), " curl_multi_init "(3), "

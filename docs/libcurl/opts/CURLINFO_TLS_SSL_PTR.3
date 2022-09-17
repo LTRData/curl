@@ -102,7 +102,7 @@ using FTP over SSL. That is because the FTP protocol has a control channel and
 a data channel and one or both may be over SSL. Currently there is no way to
 retrieve a second in-use SSL session associated with an easy handle.
 
-This option has not been thoroughly tested with plaintext protocols that can
+This option has not been thoroughly tested with clear text protocols that can
 be upgraded/downgraded to/from SSL: FTP, SMTP, POP3, IMAP when used with
 \fICURLOPT_USE_SSL(3)\fP. Though you will be able to retrieve the SSL pointer,
 it's possible that before you can do that data (including auth) may have
@@ -115,10 +115,10 @@ after renegotiation but before you are able to get the (possibly) changed SSL
 pointer, with the (possibly) changed certificate information.
 
 If you are using OpenSSL or wolfSSL then \fICURLOPT_SSL_CTX_FUNCTION(3)\fP can
-be used to set a certificate verification callback in the CTX. That is safer
-than using this option to poll for certificate changes and does not suffer from
-any of the problems above. There is currently no way in libcurl to set a
-verification callback for the other SSL backends.
+be used to set a certificate verification callback. That is safer than using
+this option to poll for certificate changes and does not suffer from any of
+the problems above. There is currently no way in libcurl to set a verification
+callback for the other SSL backends.
 
 How are you using this option? Are you affected by any of these limitations?
 Please let us know by making a comment at

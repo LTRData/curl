@@ -76,23 +76,22 @@ To avoid this problem, use an authentication mechanism or other protocol that
 does not let snoopers see your password: Digest, CRAM-MD5, Kerberos, SPNEGO or
 NTLM authentication. Or even better: use authenticated protocols that protect
 the entire connection and everything sent over it.
-.SH "Un-authenticated Connections"
+.SH "Unauthenticated Connections"
 Protocols that do not have any form of cryptographic authentication cannot
 with any certainty know that they communicate with the right remote server.
 
 If your application is using a fixed scheme or fixed host name, it is not safe
-as long as the connection is un-authenticated. There can be a
-man-in-the-middle or in fact the whole server might have been replaced by an
-evil actor.
+as long as the connection is unauthenticated. There can be a man-in-the-middle
+or in fact the whole server might have been replaced by an evil actor.
 
-Un-authenticated protocols are unsafe. The data that comes back to curl may
+Unauthenticated protocols are unsafe. The data that comes back to curl may
 have been injected by an attacker. The data that curl sends might be modified
 before it reaches the intended server. If it even reaches the intended server
 at all.
 
 Remedies:
 .IP "Restrict operations to authenticated transfers"
-Ie use authenticated protocols protected with HTTPS or SSH.
+Use authenticated protocols protected with HTTPS or SSH.
 .IP "Make sure the server's certificate etc is verified"
 Never ever switch off certificate verification.
 .SH "Redirects"
@@ -106,7 +105,7 @@ A redirect to a file: URL would cause the libcurl to read (or write) arbitrary
 files from the local filesystem. If the application returns the data back to
 the user (as would happen in some kinds of CGI scripts), an attacker could
 leverage this to read otherwise forbidden data (e.g.
-file://localhost/etc/passwd).
+\fBfile://localhost/etc/passwd\fP).
 
 If authentication credentials are stored in the ~/.netrc file, or Kerberos is
 in use, any other URL type (not just file:) that requires authentication is
@@ -116,7 +115,7 @@ then return data even when the server is password protected.
 In the same way, if an unencrypted SSH private key has been configured for the
 user running the libcurl application, SCP: or SFTP: URLs could access password
 or private-key protected resources,
-e.g. sftp://user@some-internal-server/etc/passwd
+e.g. \fBsftp://user@some-internal-server/etc/passwd\fP
 
 The \fICURLOPT_REDIR_PROTOCOLS(3)\fP and \fICURLOPT_NETRC(3)\fP options can be
 used to mitigate against this kind of attack.
@@ -140,23 +139,23 @@ and \fICURLOPT_RANGE(3)\fP, libcurl will send the headers as-is and will not
 apply any special sanitization or normalization to them.
 
 If you allow untrusted user input into these options without sanitizing CRLF
-sequences in them, someone malicious may be able to modify the request in a way
-you didn't intend such as injecting new headers.
+sequences in them, someone malicious may be able to modify the request in a
+way you did not intend such as injecting new headers.
 .SH "Local Resources"
 A user who can control the DNS server of a domain being passed in within a URL
 can change the address of the host to a local, private address which a
 server-side libcurl-using application could then use. e.g. the innocuous URL
-http://fuzzybunnies.example.com/ could actually resolve to the IP address of a
-server behind a firewall, such as 127.0.0.1 or 10.1.2.3. Applications can
-mitigate against this by setting a \fICURLOPT_OPENSOCKETFUNCTION(3)\fP
-or \fICURLOPT_PREREQFUNCTION(3)\fP and checking the address before a
-connection.
+\fBhttp://fuzzybunnies.example.com/\fP could actually resolve to the IP
+address of a server behind a firewall, such as 127.0.0.1 or
+10.1.2.3. Applications can mitigate against this by setting a
+\fICURLOPT_OPENSOCKETFUNCTION(3)\fP or \fICURLOPT_PREREQFUNCTION(3)\fP and
+checking the address before a connection.
 
 All the malicious scenarios regarding redirected URLs apply just as well to
 non-redirected URLs, if the user is allowed to specify an arbitrary URL that
 could point to a private resource. For example, a web app providing a
-translation service might happily translate file://localhost/etc/passwd and
-display the result. Applications can mitigate against this with the
+translation service might happily translate \fBfile://localhost/etc/passwd\fP
+and display the result. Applications can mitigate against this with the
 \fICURLOPT_PROTOCOLS(3)\fP option as well as by similar mitigation techniques
 for redirections.
 
@@ -305,13 +304,13 @@ as within libcurl itself.
 When performing an FTP transfer, two TCP connections are used: one for setting
 up the transfer and one for the actual data.
 
-FTP is not only un-authenticated, but the setting up of the second transfer is
+FTP is not only unauthenticated, but the setting up of the second transfer is
 also a weak spot. The second connection to use for data, is either setup with
 the PORT/EPRT command that makes the server connect back to the client on the
 given IP+PORT, or with PASV/EPSV that makes the server setup a port to listen
 to and tells the client to connect to a given IP+PORT.
 
-Again, un-authenticated means that the connection might be meddled with by a
+Again, unauthenticated means that the connection might be meddled with by a
 man-in-the-middle or that there's a malicious server pretending to be the
 right one.
 
