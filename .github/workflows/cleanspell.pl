@@ -26,6 +26,8 @@ while(<F>) {
         $_ =~ s/CURLE_[A-Z0-9_]*//g;
         # filter out mentioned CURLOPT_ names
         $_ =~ s/CURLOPT_[A-Z0-9_]*//g;
+        # filter out mentioned CURL_DISABLE_ names
+        $_ =~ s/CURL_DISABLE_[A-Z0-9_]*//g;
         print O $_;
     }
 }
