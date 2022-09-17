@@ -79,13 +79,13 @@ As of November 2021 `@bagder` and `@mback2k` are the only people with
 administrator access to the Azure CI environment. Additional admins/group
 members can be added on request.
 
-### Appveyor
+### AppVeyor
 
-Appveyor runs a variety of different Windows builds, with different compilation
+AppVeyor runs a variety of different Windows builds, with different compilation
 options.
 
 As of November 2021 `@bagder`, `@mback2k`, `@jay`, `@vszakats`, `@dfandrich`
-and `@danielgustafsson` have administrator access to the Appveyor CI
+and `@danielgustafsson` have administrator access to the AppVeyor CI
 environment.  Additional admins/group members can be added on request.
 
 The tests are configured in `appveyor.yml`.
