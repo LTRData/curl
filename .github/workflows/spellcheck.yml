@@ -9,6 +9,7 @@ on:
     - master
     paths:
     - '**.md'
+    - '!docs/BINDINGS.md'
   pull_request:
     branches:
     - master
@@ -678,3 +679,4 @@ jobs:
 #W:zsh
 #W:zstd
 #W:Zuul
+#W:pycurl
