@@ -681,8 +681,8 @@ curl is also capable of using client certificates to get/post files from sites
 that require valid certificates. The only drawback is that the certificate
 needs to be in PEM-format. PEM is a standard and open format to store
 certificates with, but it is not used by the most commonly used browsers. If
-you want curl to use the certificates you use with your (favourite) browser,
-you may need to download/compile a converter that can convert your browser's
+you want curl to use the certificates you use with your favorite browser, you
+may need to download/compile a converter that can convert your browser's
 formatted certificates to PEM formatted ones.
 
 Example on how to automatically retrieve a document using a certificate with a
