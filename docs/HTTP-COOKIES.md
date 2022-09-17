@@ -74,8 +74,8 @@
   `-b, --cookie`
 
   tell curl a file to read cookies from and start the cookie engine, or if it
-  is not a file it will pass on the given string. -b name=var works and so does
-  -b cookiefile.
+  is not a file it will pass on the given string. `-b name=var` works and so
+  does `-b cookiefile`.
 
   `-j, --junk-session-cookies`
 
@@ -127,7 +127,7 @@
 
 ## Cookies with JavaScript
 
-  These days a lot of the web is built up by JavaScript. The webbrowser loads
+  These days a lot of the web is built up by JavaScript. The web browser loads
   complete programs that render the page you see. These JavaScript programs
   can also set and access cookies.
 
