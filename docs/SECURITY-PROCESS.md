@@ -112,9 +112,9 @@ somewhat over time and a list somewhere will only risk getting outdated.
 
 2. Name the advisory file after the allocated CVE id.
 
-3. Add a line on the top of the array in `curl-www/docs/vuln.pm'.
+3. Add a line on the top of the array in `curl-www/docs/vuln.pm`.
 
-4. Put the new advisory markdown file in the curl-www/docs/ directory. Add it
+4. Put the new advisory markdown file in the `curl-www/docs/` directory. Add it
    to the git repository.
 
 5. Run `make` in your local web checkout and verify that things look fine.
