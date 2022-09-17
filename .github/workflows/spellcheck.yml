@@ -595,3 +595,17 @@ jobs:
 #W:Zitzmann
 #W:zlib
 #W:zsh
+#W:SPDX
+#W:al
+#W:et
+#W:fuzzer
+#W:Preprocessing
+#W:CodeQL
+#W:LGTM
+#W:appveyor
+#W:buildbot
+#W:codeql
+#W:deepcode
+#W:macos
+#W:musedev
+#W:winssl
