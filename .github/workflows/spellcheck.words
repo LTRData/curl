@@ -644,3 +644,8 @@ prepending
 GPG
 ALPN
 ABI
+CPUs
+cyassl
+GSSAPI
+prepended
+monospace
