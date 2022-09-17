@@ -34,8 +34,8 @@ CURLcode curl_easy_setopt(CURL *handle, CURLOPT_WILDCARDMATCH, long onoff);
 .SH DESCRIPTION
 Set \fIonoff\fP to 1 if you want to transfer multiple files according to a
 file name pattern. The pattern can be specified as part of the
-\fICURLOPT_URL(3)\fP option, using an fnmatch-like pattern (Shell Pattern
-Matching) in the last part of URL (file name).
+\fICURLOPT_URL(3)\fP option, using an \fBfnmatch\fP-like pattern (Shell
+Pattern Matching) in the last part of URL (file name).
 
 By default, libcurl uses its internal wildcard matching implementation. You
 can provide your own matching function by the
