@@ -15,9 +15,7 @@ on:
 
 jobs:
   check:
-
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v2
 
@@ -26,31 +24,33 @@ jobs:
 
     # config file help: https://github.com/amperser/proselint/
     - name: create proselint config
-      run: grep '^## C:' .github/workflows/proselint.yml | sed 's/^## C://' > $HOME/.proselintrc
+      run: |
+        cat <<JSON >> $HOME/.proselintrc
+        {
+          "checks": {
+            "typography.diacritical_marks": false,
+            "typography.symbols": false,
+            "annotations.misc": false
+          }
+        }
+        JSON
 
     - name: check prose
       run: a=`git ls-files '*.md' | grep -v docs/CHECKSRC.md` && proselint $a README
 
+    # This is for CHECKSRC and files with aggressive exclamation mark needs
     - name: create second proselint config
-      run: grep '^## C2:' .github/workflows/proselint.yml | sed 's/^## C2://' > $HOME/.proselintrc
+      run: |
+        cat <<JSON >> $HOME/.proselintrc
+        {
+          "checks": {
+            "typography.diacritical_marks": false,
+            "typography.symbols": false,
+            "typography.exclamation": false
+            "annotations.misc": false,
+          }
+        }
+        JSON
 
     - name: check special prose
       run: a=docs/CHECKSRC.md && proselint $a
-
-## C: {
-## C:    "checks": {
-## C:      "typography.diacritical_marks": false,
-## C:      "typography.symbols": false,
-## C:      "annotations.misc": false
-## C:    }
-## C: }
-
-# This is for CHECKSRC and files with aggressive exclamation mark needs
-## C2: {
-## C2:    "checks": {
-## C2:      "typography.diacritical_marks": false,
-## C2:      "typography.symbols": false,
-## C2:      "typography.exclamation": false
-## C2:      "annotations.misc": false,
-## C2:    }
-## C2: }
