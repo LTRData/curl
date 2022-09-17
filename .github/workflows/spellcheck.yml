@@ -26,10 +26,10 @@ jobs:
       run: sudo apt-get install pandoc
 
     - name: convert .3 man pages to markdown
-      run: find docs -name "*.3" -size +40c | sed 's/\.3//' | xargs -t -n1 -I OO pandoc OO.3 -o OO.md
+      run: find docs -name "*.3" -size +40c | sed 's/\.3//' | xargs -t -n1 -I OO ./.github/workflows/cleanspell.pl < OO.3 | pandoc -f man -o OO.md
 
     - name: convert .1 man pages to markdown
-      run: find docs -name "*.1" -size +40c | sed 's/\.1//' | xargs -t -n1 -I OO pandoc OO.1 -o OO.md
+      run: find docs -name "*.1" -size +40c | sed 's/\.1//' | xargs -t -n1 -I OO ./.github/workflows/cleanspell.pl < OO.1 | pandoc -f man -o OO.md
 
     - name: setup the custom wordlist
       run: grep -v '^#' .github/workflows/spellcheck.words >  wordlist.txt
