@@ -37,9 +37,6 @@ jobs:
     - name: setup the custom wordlist
       run: grep -v '^#' .github/workflows/spellcheck.words >  wordlist.txt
 
-    - name: accept all option names
-      run: find docs/libcurl/opts/ -name "*.3" | cut -d_ -f2 | sed 's/\.3//' | sort -u >> wordlist.txt
-
     - name: setup the spellcheck config
       run: cp .github/workflows/spellcheck.yaml .
 
