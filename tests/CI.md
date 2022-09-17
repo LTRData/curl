@@ -42,8 +42,7 @@ Consider the following table while looking at pull request failures:
  | continuous-integration/appveyor/pr  | stable | all errors and failures    |
  | curl.curl (linux ...)               | stable | all errors and failures    |
  | curl.curl (windows ...)             | flaky  | repetitive errors/failures |
- | deepcode-ci-bot                     | stable | new findings               |
- | musedev                             | stable | new findings               |
+ | CodeQL                              | stable | new findings               |
 
 Sometimes the tests fail due to a dependency service temporarily being offline
 or otherwise unavailable, eg. package downloads. In this case you can just
@@ -75,20 +74,20 @@ The following tests are run in Microsoft Azure CI environment:
 
 These are all configured in `.azure-pipelines.yml`.
 
-As of November 2021 @bagder and @mback2k are the only people with administrator
-access to the Azure CI environment. Additional admins/group members can be added
-on request.
+As of November 2021 `@bagder` and `@mback2k` are the only people with
+administrator access to the Azure CI environment. Additional admins/group
+members can be added on request.
 
 ### Appveyor
 
 Appveyor runs a variety of different Windows builds, with different compilation
 options.
 
-As of November 2021 @bagder, @mback2k, @jay, @vszakats, @dfandrich and
-@danielgustafsson have administrator access to the Appveyor CI environment.
-Additional admins/group members can be added on request.
+As of November 2021 `@bagder`, `@mback2k`, `@jay`, `@vszakats`, `@dfandrich`
+and `@danielgustafsson` have administrator access to the Appveyor CI
+environment.  Additional admins/group members can be added on request.
 
-The tests are configured in appveyor.yml.
+The tests are configured in `appveyor.yml`.
 
 ### Zuul
 
@@ -105,8 +104,8 @@ do not report results to the Github checks runner - you need to manually check
 for failures. See [#7522](https://github.com/curl/curl/issues/7522) for more
 information.
 
-As of November 2021 Daniel Stenberg is the only person with administrator access
-to the Zuul CI environment.
+As of November 2021 Daniel Stenberg is the only person with administrator
+access to the Zuul CI environment.
 
 These are configured in `zuul.d` and have test runners in `scripts/zuul`.
 
@@ -118,8 +117,8 @@ processors. This is configured in `.circleci/config.yml`.
 You can [view the full list of CI jobs on CircleCI's
 website](https://app.circleci.com/pipelines/github/curl/curl).
 
-@bagder has access to edit the "Project Settings" on that page.
-Additional admins/group members can be added on request.
+`@bagder` has access to edit the "Project Settings" on that page.  Additional
+admins/group members can be added on request.
 
 ### Cirrus CI
 
@@ -129,5 +128,5 @@ Cirrus CI runs a basic test suite on FreeBSD and Windows. This is configured in
 You can [view the full list of CI jobs on Cirrus CI's
 website](https://cirrus-ci.com/github/curl/curl).
 
-@bagder has access to edit the "Project Settings" on that page.
-Additional admins/group members can be added on request.
+`@bagder` has access to edit the "Project Settings" on that page.  Additional
+admins/group members can be added on request.
