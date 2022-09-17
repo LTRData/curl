@@ -45,7 +45,7 @@ jobs:
 ## C:    }
 ## C: }
 
-# This is for CHECKSRC and files with agressive exclamation mark needs
+# This is for CHECKSRC and files with aggressive exclamation mark needs
 ## C2: {
 ## C2:    "checks": {
 ## C2:      "typography.diacritical_marks": false,
