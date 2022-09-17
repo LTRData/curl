@@ -24,6 +24,9 @@ jobs:
     - name: install pandoc
       run: sudo apt-get install pandoc
 
+    - name: list some files in docs/libcurl/opts
+      run: ls -l docs/libcurl/opts/*TLS*
+
     # two mysterious .3.3 files appear that cause trouble
     - name: convert .3 man pages to markdown
       run: find docs -name "*.3" -a \! -name '*.3.3' -size +40c | sed 's/.3//' | xargs -t -n1 -I OO pandoc OO.3 -o OO.md
