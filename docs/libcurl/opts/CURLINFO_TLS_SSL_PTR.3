@@ -66,29 +66,27 @@ The \fIinternals\fP struct member will point to a TLS library specific pointer
 for the active ("in use") SSL connection, with the following underlying types:
 .RS
 .IP GnuTLS
-gnutls_session_t
+\fBgnutls_session_t\fP
 .IP gskit
-gsk_handle
+\fBgsk_handle\fP
 .IP NSS
-PRFileDesc *
+\fBPRFileDesc *\fP
 .IP OpenSSL
-CURLINFO_TLS_SESSION: SSL_CTX *
+CURLINFO_TLS_SESSION: \fBSSL_CTX *\fP
 
-CURLINFO_TLS_SSL_PTR: SSL *
+CURLINFO_TLS_SSL_PTR: \fBSSL *\fP
 .RE
 Since 7.48.0 the \fIinternals\fP member can point to these other SSL backends
 as well:
 .RS
 .IP mbedTLS
-mbedtls_ssl_context *
+\fBmbedTLS_ssl_context *\fP
 .IP "Secure Channel"
-CtxtHandle *
+\fBCtxtHandle *\FP
 .IP "Secure Transport"
-SSLContext *
+\fBSSLContext *\fP
 .IP "wolfSSL"
-SSL *
-.IP "MesaLink"
-SSL *
+\fBSSL *\fP
 .RE
 
 If the \fIinternals\fP pointer is NULL then either the SSL backend is not

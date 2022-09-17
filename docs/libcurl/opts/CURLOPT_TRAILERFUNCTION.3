@@ -52,9 +52,8 @@ If you use curl_slist_append to add trailing headers to the curl_slist then
 libcurl will duplicate the strings, and will free the curl_slist and the
 duplicates once the trailers have been sent.
 
-If one of the trailing headers is not formatted correctly
-(i.e. HeaderName: headerdata) it will be ignored and an info message
-will be emitted.
+If one of the trailing header fields is not formatted correctly it will be
+ignored and an info message will be emitted.
 
 The return value can either be \fBCURL_TRAILERFUNC_OK\fP or
 \fBCURL_TRAILERFUNC_ABORT\fP which would respectively instruct libcurl to
