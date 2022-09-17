@@ -21,6 +21,9 @@ jobs:
     steps:
     - uses: actions/checkout@v2
 
+    - name: install pandoc
+      run: sudo apt-get install pandoc
+
     - name: convert .3 man pages to markdown
       run: git ls-files '*.3' | sed 's/.3//' | xargs -n1 -I OO pandoc OO.3 -o OO.md
 
