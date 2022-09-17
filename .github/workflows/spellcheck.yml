@@ -40,6 +40,7 @@ jobs:
       uses: UnicornGlobal/spellcheck-github-actions@master
 
 #W:ACTIVESOCKET
+#W:AES
 #W:AIX
 #W:al
 #W:Alessandro
@@ -95,6 +96,7 @@ jobs:
 #W:CentOS
 #W:CERTINFO
 #W:CGI's
+#W:CHACHA
 #W:Chaffraix
 #W:changelog
 #W:CharConv
@@ -116,6 +118,7 @@ jobs:
 #W:CMakeLists
 #W:CodeQL
 #W:codeql
+#W:CODESET
 #W:Comcast
 #W:Config
 #W:config
@@ -143,12 +146,19 @@ jobs:
 #W:CURLE
 #W:CURLFTPSSL
 #W:CURLH
+#W:CURLHEADER
 #W:CURLHSTS
 #W:curlimages
 #W:CURLINFO
+#W:CURLKHTYPE
+#W:CURLM
 #W:CURLMOPT
 #W:CURLOPT
+#W:CURLPROXY
 #W:curlrc
+#W:CURLSHE
+#W:CURLSHOPT
+#W:CURLSHOPT
 #W:CURLU
 #W:CURLUSESSL
 #W:CURLVERSION
@@ -178,6 +188,7 @@ jobs:
 #W:Dudka
 #W:Dymond
 #W:EBCDIC
+#W:ECDHE
 #W:EFnet
 #W:eg
 #W:EHLO
@@ -222,11 +233,13 @@ jobs:
 #W:fuzzer
 #W:fwrite
 #W:gcc
+#W:GCM
 #W:gdb
 #W:Gergely
 #W:getaddrinfo
 #W:gethostname
 #W:Getinfo
+#W:getinfo
 #W:GETing
 #W:getpwuid
 #W:ggcov
@@ -277,6 +290,8 @@ jobs:
 #W:HTTPS
 #W:https
 #W:Huawei
+#W:IANA
+#W:ICONV
 #W:IDN
 #W:IDNA
 #W:IETF
@@ -416,6 +431,7 @@ jobs:
 #W:Ok
 #W:OpenBSD
 #W:openldap
+#W:OpenLDAP
 #W:Opensocket
 #W:OpenSSF
 #W:OpenSSF's
@@ -468,6 +484,7 @@ jobs:
 #W:Raad
 #W:RBS
 #W:READFUNCTION
+#W:README
 #W:READONLYFILE
 #W:rebase
 #W:RECV
@@ -483,9 +500,11 @@ jobs:
 #W:ROADMAP
 #W:Rockbox
 #W:roffit
+#W:RSA
 #W:RTMP
 #W:rtmp
 #W:RTMPS
+#W:RTMPT
 #W:RTP
 #W:RTSP
 #W:rtsp
@@ -502,6 +521,7 @@ jobs:
 #W:Schindelin
 #W:SCP
 #W:scp
+#W:SDK
 #W:se
 #W:SEB
 #W:SEK
@@ -613,6 +633,8 @@ jobs:
 #W:urlget
 #W:USD
 #W:userdata
+#W:Userinfo
+#W:userinfo
 #W:UTF
 #W:valgrind
 #W:Vanem
@@ -636,12 +658,15 @@ jobs:
 #W:whitespace
 #W:Whitespaces
 #W:winbuild
+#W:winidn
+#W:WinLDAP
 #W:WinSock
 #W:WinSSL
 #W:winssl
 #W:Wireshark
 #W:wolfSSH
 #W:wolfSSL
+#W:WRITEFUNC
 #W:www
 #W:xdigit
 #W:Xilinx
