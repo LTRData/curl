@@ -180,8 +180,8 @@ transfers, and curl's `-v` option to see exactly what curl is sending.
 ## Ranges
 
 HTTP 1.1 introduced byte-ranges. Using this, a client can request to get only
-one or more subparts of a specified document. Curl supports this with the `-r`
-flag.
+one or more sub-parts of a specified document. Curl supports this with the
+`-r` flag.
 
 Get the first 100 bytes of a document:
 
