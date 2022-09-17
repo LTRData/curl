@@ -23,9 +23,9 @@ while(<F>) {
     }
     elsif(!$ignore) {
         # filter out mentioned CURLE_ names
-        $_ =~ s/CURLE_[A-Z0-9_*]//g;
+        $_ =~ s/CURLE_[A-Z0-9_]*//g;
         # filter out mentioned CURLOPT_ names
-        $_ =~ s/CURLOPT_[A-Z0-9_*]//g;
+        $_ =~ s/CURLOPT_[A-Z0-9_]*//g;
         print O $_;
     }
 }
