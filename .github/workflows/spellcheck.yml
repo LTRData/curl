@@ -25,10 +25,10 @@ jobs:
       run: sudo apt-get install pandoc
 
     - name: convert .3 man pages to markdown
-      run: git ls-files '*.3' | sed 's/.3//' | xargs -t -n1 -I OO pandoc OO.3 -o OO.md
+      run: find docs -name "*.3" | sed 's/.3//' | xargs -t -n1 -I OO pandoc OO.3 -o OO.md
 
     - name: convert .1 man pages to markdown
-      run: git ls-files '*.1' | sed 's/.1//' | xargs -t -n1 -I OO pandoc OO.1 -o OO.md
+      run: find docs -name "*.1" | sed 's/.1//' | xargs -t -n1 -I OO pandoc OO.1 -o OO.md
 
     - name: Check Spelling
       uses: UnicornGlobal/spellcheck-github-actions@master
