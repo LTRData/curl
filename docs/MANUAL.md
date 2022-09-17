@@ -907,7 +907,7 @@ decreases connection time for all but the first transfer and it makes a far
 better use of the network.
 
 Note that curl cannot use persistent connections for transfers that are used
-in subsequence curl invokes. Try to stuff as many URLs as possible on the same
+in subsequent curl invokes. Try to stuff as many URLs as possible on the same
 command line if they are using the same host, as that will make the transfers
 faster. If you use an HTTP proxy for file transfers, practically all transfers
 will be persistent.
