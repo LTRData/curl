@@ -28,6 +28,12 @@ while(<F>) {
         $_ =~ s/CURLOPT_[A-Z0-9_]*//g;
         # filter out mentioned CURL_DISABLE_ names
         $_ =~ s/CURL_DISABLE_[A-Z0-9_]*//g;
+        # filter out mentioned CURL_RTSPREQ_ names
+        $_ =~ s/CURL_RTSPREQ_[A-Z0-9_]*//g;
+        # filter out mentioned CURLPIPE_ names
+        $_ =~ s/CURLPIPE_[A-Z0-9_]*//g;
+        # filter out mentioned CURLSHOPT_ names
+        $_ =~ s/CURLSHOPT_[A-Z0-9_]*//g;
         print O $_;
     }
 }
