@@ -26,6 +26,6 @@ matrix:
       - ':matches(code, pre)'
       - 'code'
       - 'pre'
-      - 'span'
+      - 'strong'
   sources:
   - '**/*.md|!docs/BINDINGS.md'
