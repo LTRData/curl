@@ -232,18 +232,18 @@ which test file to load the list content.
 
 ### `<dataNUM>`
 
-Send back this contents instead of the <data> one. The num is set by:
+Send back this contents instead of the <data> one. The `NUM` is set by:
 
  - The test number in the request line is >10000 and this is the remainder
    of [test case number]%10000.
- - The request was HTTP and included digest details, which adds 1000 to NUM
- - If a HTTP request is NTLM type-1, it adds 1001 to num
- - If a HTTP request is NTLM type-3, it adds 1002 to num
- - If a HTTP request is Basic and num is already >=1000, it adds 1 to num
- - If a HTTP request is Negotiate, num gets incremented by one for each
+ - The request was HTTP and included digest details, which adds 1000 to `NUM`
+ - If a HTTP request is NTLM type-1, it adds 1001 to `NUM`
+ - If a HTTP request is NTLM type-3, it adds 1002 to `NUM`
+ - If a HTTP request is Basic and `NUM` is already >=1000, it adds 1 to `NUM`
+ - If a HTTP request is Negotiate, `NUM` gets incremented by one for each
    request with Negotiate authorization header on the same test case.
 
-Dynamically changing num in this way allows the test harness to be used to
+Dynamically changing `NUM` in this way allows the test harness to be used to
 test authentication negotiation where several different requests must be sent
 to complete a transfer. The response to each request is found in its own data
 section.  Validating the entire negotiation sequence can be done by specifying
@@ -461,8 +461,8 @@ to have failed.
 
 ### `<tool>`
 Name of tool to invoke instead of "curl". This tool must be built and exist
-either in the libtest/ directory (if the tool name starts with 'lib') or in
-the unit/ directory (if the tool name starts with 'unit').
+either in the `libtest/` directory (if the tool name starts with `lib`) or in
+the `unit/` directory (if the tool name starts with `unit`).
 
 ### `<name>`
 Brief test case description, shown when the test runs.
