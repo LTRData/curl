@@ -17,8 +17,8 @@ character entities and the preservation of CR/LF characters at the end of
 lines are the biggest differences).
 
 Each test case source exists as a file matching the format
-`tests/data/testNUM`, where NUM is the unique test number, and must begin with
-a 'testcase' tag, which encompasses the remainder of the file.
+`tests/data/testNUM`, where `NUM` is the unique test number, and must begin
+with a `testcase` tag, which encompasses the remainder of the file.
 
 # Preprocessing
 
@@ -79,7 +79,7 @@ For example, to insert the word hello a 100 times:
 Lines in the test file can be made to appear conditionally on a specific
 feature (see the "features" section below) being set or not set. If the
 specific feature is present, the following lines will be output, otherwise it
-outputs nothing, until a following else or endif clause. Like this:
+outputs nothing, until a following else or `endif` clause. Like this:
 
     %if brotli
     Accept-Encoding
@@ -120,7 +120,7 @@ Available substitute variables include:
 - `%FTPSPORT` - Port number of the FTPS server
 - `%FTPTIME2` - Timeout in seconds that should be just sufficient to receive a
   response from the test FTP server
-- `%FTPTIME3` - Even longer than %FTPTIME2
+- `%FTPTIME3` - Even longer than `%FTPTIME2`
 - `%GOPHER6PORT` - IPv6 port number of the Gopher server
 - `%GOPHERPORT` - Port number of the Gopher server
 - `%GOPHERSPORT` - Port number of the Gophers server
@@ -165,8 +165,9 @@ Available substitute variables include:
 
 # `<testcase>`
 
-Each test is always specified entirely within the testcase tag. Each test case
-is split up in four main sections: `info`, `reply`, `client` and `verify`.
+Each test is always specified entirely within the `testcase` tag. Each test
+case is split up in four main sections: `info`, `reply`, `client` and
+`verify`.
 
 - **info** provides information about the test case
 
@@ -246,7 +247,7 @@ Dynamically changing num in this way allows the test harness to be used to
 test authentication negotiation where several different requests must be sent
 to complete a transfer. The response to each request is found in its own data
 section.  Validating the entire negotiation sequence can be done by specifying
-a datacheck section.
+a `datacheck` section.
 
 ### `<connect>`
 The connect section is used instead of the 'data' for all CONNECT
@@ -265,14 +266,14 @@ Use the `mode="text"` attribute if the output is in text mode on platforms
 that have a text/binary difference.
 
 ### `<datacheckNUM [nonewline="yes"] [mode="text"]>`
-The contents of numbered datacheck sections are appended to the non-numbered
+The contents of numbered `datacheck` sections are appended to the non-numbered
 one.
 
 ### `<size>`
 number to return on a ftp SIZE command (set to -1 to make this command fail)
 
 ### `<mdtm>`
-what to send back if the client sends a (FTP) MDTM command, set to -1 to
+what to send back if the client sends a (FTP) `MDTM` command, set to -1 to
 have it return that the file doesn't exist
 
 ### `<postcmd>`
@@ -525,13 +526,13 @@ needed.
 This creates the named file with this content before the test case is run,
 which is useful if the test case needs a file to act on.
 
-If 'nonewline="yes"` is used, the created file will have the final newline
+If `nonewline="yes"` is used, the created file will have the final newline
 stripped off.
 
 ### `<stdin [nonewline="yes"]>`
 Pass this given data on stdin to the tool.
 
-If 'nonewline' is set, we will cut off the trailing newline of this given data
+If `nonewline` is set, we will cut off the trailing newline of this given data
 before comparing with the one actually received by the client
 
 ## `<verify>`
@@ -551,7 +552,7 @@ advanced. Example: `s/^EPRT .*/EPRT stripped/`.
 
 ### `<protocol [nonewline="yes"]>`
 
-the protocol dump curl should transmit, if 'nonewline' is set, we will cut off
+the protocol dump curl should transmit, if `nonewline` is set, we will cut off
 the trailing newline of this given data before comparing with the one actually
 sent by the client The `<strip>` and `<strippart>` rules are applied before
 comparisons are made.
@@ -559,7 +560,7 @@ comparisons are made.
 ### `<proxy [nonewline="yes"]>`
 
 The protocol dump curl should transmit to a HTTP proxy (when the http-proxy
-server is used), if 'nonewline' is set, we will cut off the trailing newline
+server is used), if `nonewline` is set, we will cut off the trailing newline
 of this given data before comparing with the one actually sent by the client
 The `<strip>` and `<strippart>` rules are applied before comparisons are made.
 
@@ -569,7 +570,7 @@ This verifies that this data was passed to stderr.
 Use the mode="text" attribute if the output is in text mode on platforms that
 have a text/binary difference.
 
-If 'nonewline' is set, we will cut off the trailing newline of this given data
+If `nonewline` is set, we will cut off the trailing newline of this given data
 before comparing with the one actually received by the client
 
 ### `<stdout [mode="text"] [nonewline="yes"]>`
@@ -578,7 +579,7 @@ This verifies that this data was passed to stdout.
 Use the mode="text" attribute if the output is in text mode on platforms that
 have a text/binary difference.
 
-If 'nonewline' is set, we will cut off the trailing newline of this given data
+If `nonewline` is set, we will cut off the trailing newline of this given data
 before comparing with the one actually received by the client
 
 ### `<file name="log/filename" [mode="text"]>`
@@ -601,7 +602,7 @@ compared with what is stored in the test file. This is pretty
 advanced. Example: "s/^EPRT .*/EPRT stripped/"
 
 ### `<stripfile1>`
-1 to 4 can be appended to 'stripfile' to strip the corresponding <fileN>
+1 to 4 can be appended to `stripfile` to strip the corresponding <fileN>
 content
 
 ### `<stripfile2>`
