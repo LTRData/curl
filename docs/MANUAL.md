@@ -6,7 +6,7 @@ Get the main page from a web-server:
 
     curl https://www.example.com/
 
-Get the README file the user's home directory at funet's ftp-server:
+Get a README file from an FTP server:
 
     curl ftp://ftp.funet.fi/README
 
@@ -77,11 +77,11 @@ Fetch two files and store them with their remote names:
 
 ### FTP
 
-To ftp files using name+passwd, include them in the URL like:
+To ftp files using name and password, include them in the URL like:
 
     curl ftp://name:passwd@machine.domain:port/full/path/to/file
 
-or specify them with the -u flag like
+or specify them with the `-u` flag like
 
     curl -u name:passwd ftp://machine.domain:port/full/path/to/file
 
@@ -695,10 +695,9 @@ prompted for the correct password before any data can be received.
 
 Many older HTTPS servers have problems with specific SSL or TLS versions,
 which newer versions of OpenSSL etc use, therefore it is sometimes useful to
-specify what SSL-version curl should use. Use -3, -2 or -1 to specify that
-exact SSL version to use (for SSLv3, SSLv2 or TLSv1 respectively):
+specify what TLS version curl should use.:
 
-    curl -2 https://secure.site.com/
+    curl --tlv1.0 https://secure.site.com/
 
 Otherwise, curl will attempt to use a sensible TLS default version.
 
@@ -858,13 +857,13 @@ ending newline:
 Curl supports kerberos4 and kerberos5/GSSAPI for FTP transfers. You need the
 kerberos package installed and used at curl build time for it to be available.
 
-First, get the krb-ticket the normal way, like with the kinit/kauth tool.
+First, get the krb-ticket the normal way, like with the `kinit`/`kauth` tool.
 Then use curl in way similar to:
 
     curl --krb private ftp://krb4site.com -u username:fakepwd
 
 There is no use for a password on the `-u` switch, but a blank one will make
-curl ask for one and you already entered the real password to kinit/kauth.
+curl ask for one and you already entered the real password to `kinit`/`kauth`.
 
 ## TELNET
 
