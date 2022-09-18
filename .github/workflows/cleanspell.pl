@@ -23,6 +23,7 @@ while(<F>) {
     }
     elsif(!$ignore) {
         # filter out mentioned CURLE_ names
+        $_ =~ s/CURL(M|SH|U|H)code//g;
         $_ =~ s/CURL_CSELECT_[A-Z0-9_]*//g;
         $_ =~ s/CURL_DISABLE_[A-Z0-9_]*//g;
         $_ =~ s/CURL_HET_DEFAULT//g;
@@ -36,6 +37,7 @@ while(<F>) {
         $_ =~ s/CURLALTSVC_[A-Z0-9_]*//g;
         $_ =~ s/CURLAUTH_[A-Z0-9_]*//g;
         $_ =~ s/CURLE_[A-Z0-9_]*//g;
+        $_ =~ s/CURLFORM_[A-Z0-9_]*//g;
         $_ =~ s/CURLFTP_[A-Z0-9_]*//g;
         $_ =~ s/CURLFTPAUTH_[A-Z0-9_]*//g;
         $_ =~ s/CURLFTPMETHOD_[A-Z0-9_]*//g;
@@ -50,7 +52,11 @@ while(<F>) {
         $_ =~ s/CURLSHOPT_[A-Z0-9_]*//g;
         $_ =~ s/CURLSSH_[A-Z0-9_]*//g;
         $_ =~ s/CURLSSLBACKEND_[A-Z0-9_]*//g;
-        $_ =~ s/(^|\W)((https|http|ftp):\/\/[a-z0-9\-._~%:\/?\#\[\]\@!\$&'()*+,;=]+)//gi;
+        $_ =~ s/CURLUPART_[A-Z0-9_]*//g;
+        $_ =~ s/curl_global_(init_mem|sslset|cleanup)//g;
+        $_ =~ s/curl_(strequal|strnequal|formadd|waitfd|formget|getdate)//g;
+        $_ =~ s/curl_easy_(nextheader|duphandle)//g;
+        $_ =~ s/(^|\W)((tftp|https|http|ftp):\/\/[a-z0-9\-._~%:\/?\#\[\]\@!\$&'()*+,;=]+)//gi;
         print O $_;
     }
 }
