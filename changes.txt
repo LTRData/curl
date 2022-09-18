@@ -1,0 +1,7 @@
+Added to .gitignore:
+out
+*.pch
+
+
+Changed at line 56 in winbuild\MakefileBuild.vc:
+LFLAGS     = /nologo /machine:$(MACHINE) $(X_LFLAGS)

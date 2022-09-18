@@ -55,7 +55,7 @@ CC_DEBUG    = $(CC) /Od /D_DEBUG /RTC1 /Z7 /LDd
 CFLAGS      = /I. /I ../lib /I../include /nologo /W4 /EHsc /DWIN32 /FD /c /DBUILDING_LIBCURL
 !ENDIF
 
-LFLAGS     = /nologo /machine:$(MACHINE)
+LFLAGS     = /nologo /machine:$(MACHINE) $(X_LFLAGS)
 LNKDLL     = link.exe /DLL
 # Use lib.exe instead of link.exe as link.exe /lib has the following bad habits:
 # - optimizing options like /opt:ref raises warnings (at least in Visual Studio 2015)
