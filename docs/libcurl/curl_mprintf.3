@@ -64,9 +64,9 @@ The functions \fBcurl_mvprintf()\fP, \fBcurl_mvfprintf()\fP,
 \fBcurl_mvsprintf()\fP, \fBcurl_mvsnprintf()\fP are equivalent to the
 functions \fBcurl_mprintf()\fP, \fBcurl_mfprintf()\fP, \fBcurl_msprintf()\fP,
 \fBcurl_msnprintf()\fP, respectively, except that they are called with a
-va_list instead of a variable number of arguments. These functions do not call
-the va_end macro. Because they invoke the \fIva_arg\fP macro, the value of
-\fIap\fP is undefined after the call.
+\fIva_list\fP instead of a variable number of arguments. These functions do
+not call the \fIva_end\fP macro. Because they invoke the \fIva_arg\fP macro,
+the value of \fIap\fP is undefined after the call.
 
 The functions \fBcurl_maprintf()\fP and \fBcurl_mvaprintf()\fP return the
 output string as pointer to a newly allocated memory area. The returned string
@@ -208,7 +208,7 @@ printed with an explicit precision 0, the output is empty.
 The double argument is rounded and output in the style "[-]d.ddde±dd"
 .TP
 .B f, F
-The double argument is rounded and output to decimal notiation in the style
+The double argument is rounded and output to decimal notation in the style
 [-]ddd.ddd.
 .TP
 .B g, G

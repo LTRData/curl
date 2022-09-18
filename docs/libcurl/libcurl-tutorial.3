@@ -49,9 +49,9 @@ well.
 Your compiler needs to know where the libcurl headers are located. Therefore
 you must set your compiler's include path to point to the directory where you
 installed them. The 'curl-config'[3] tool can be used to get this information:
-
-$ curl-config --cflags
-
+.nf
+  $ curl-config --cflags
+.fi
 .IP "Linking the Program with libcurl"
 When having compiled the program, you need to link your object files to create
 a single executable. For that to succeed, you need to link with libcurl and
@@ -59,9 +59,9 @@ possibly also with other libraries that libcurl itself depends on. Like the
 OpenSSL libraries, but even some standard OS libraries may be needed on the
 command line. To figure out which flags to use, once again the 'curl-config'
 tool comes to the rescue:
-
-$ curl-config --libs
-
+.nf
+  $ curl-config --libs
+.fi
 .IP "SSL or Not"
 libcurl can be built and customized in many ways. One of the things that
 varies from different libraries and builds is the support for SSL-based
@@ -69,9 +69,9 @@ transfers, like HTTPS and FTPS. If a supported SSL library was detected
 properly at build-time, libcurl will be built with SSL support. To figure out
 if an installed libcurl has been built with SSL support enabled, use
 \&'curl-config' like this:
-
-$ curl-config --feature
-
+.nf
+  $ curl-config --feature
+.fi
 And if SSL is supported, the keyword 'SSL' will be written to stdout,
 possibly together with a few other features that could be either on or off on
 for different libcurls.
@@ -95,9 +95,9 @@ stop you from that.
 The program must initialize some of the libcurl functionality globally. That
 means it should be done exactly once, no matter how many times you intend to
 use the library. Once for your program's entire life time. This is done using
-
+.nf
  curl_global_init()
-
+.fi
 and it takes one parameter which is a bit pattern that tells libcurl what to
 initialize. Using \fICURL_GLOBAL_ALL\fP will make it initialize all known
 internal sub modules, and might be a good default option. The current two bits
@@ -155,9 +155,9 @@ should use one handle for every thread you plan to use for transferring. You
 must never share the same handle in multiple threads.
 
 Get an easy handle with
-
+.nf
  handle = curl_easy_init();
-
+.fi
 It returns an easy handle. Using that you proceed to the next step: setting
 up your preferred actions. A handle is just a logic entity for the upcoming
 transfer or series of transfers.
@@ -190,19 +190,19 @@ remote resource you want to get here. Since you write a sort of application
 that needs this transfer, I assume that you would like to get the data passed
 to you directly instead of simply getting it passed to stdout. So, you write
 your own function that matches this prototype:
-
+.nf
  size_t write_data(void *buffer, size_t size, size_t nmemb, void *userp);
-
+.fi
 You tell libcurl to pass all data to this function by issuing a function
 similar to this:
-
+.nf
  curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, write_data);
-
+.fi
 You can control what data your callback function gets in the fourth argument
 by setting another property:
-
+.nf
  curl_easy_setopt(handle, CURLOPT_WRITEDATA, &internal_struct);
-
+.fi
 Using that property, you can easily pass local data between your application
 and the function that gets invoked by libcurl. libcurl itself will not touch the
 data you pass with \fICURLOPT_WRITEDATA(3)\fP.
@@ -229,9 +229,9 @@ will experience crashes.
 
 There are of course many more options you can set, and we will get back to a few
 of them later. Let's instead continue to the actual transfer:
-
+.nf
  success = curl_easy_perform(handle);
-
+.fi
 \fIcurl_easy_perform(3)\fP will connect to the remote site, do the necessary
 commands and receive the transfer. Whenever it receives data, it calls the
 callback function we previously set. The function may get one byte at a time,
@@ -301,23 +301,23 @@ Since we write an application, we most likely want libcurl to get the upload
 data by asking us for it. To make it do that, we set the read callback and
 the custom pointer libcurl will pass to our read callback. The read callback
 should have a prototype similar to:
-
+.nf
  size_t function(char *bufptr, size_t size, size_t nitems, void *userp);
-
+.fi
 Where bufptr is the pointer to a buffer we fill in with data to upload and
 size*nitems is the size of the buffer and therefore also the maximum amount
 of data we can return to libcurl in this call. The 'userp' pointer is the
 custom pointer we set to point to a struct of ours to pass private data
 between the application and the callback.
-
+.nf
  curl_easy_setopt(handle, CURLOPT_READFUNCTION, read_function);
 
  curl_easy_setopt(handle, CURLOPT_READDATA, &filedata);
-
+.fi
 Tell libcurl that we want to upload:
-
+.nf
  curl_easy_setopt(handle, CURLOPT_UPLOAD, 1L);
-
+.fi
 A few protocols will not behave properly when uploads are done without any prior
 knowledge of the expected file size. So, set the upload file size using the
 \fICURLOPT_INFILESIZE_LARGE(3)\fP for all known file sizes like this[1]:
@@ -342,9 +342,9 @@ several ways to specify them.
 Most protocols support that you specify the name and password in the URL
 itself. libcurl will detect this and use them accordingly. This is written
 like this:
-
+.nf
  protocol://user:password@example.com/path/
-
+.fi
 If you need any odd letters in your user name or password, you should enter
 them URL encoded, as %XX where XX is a two-digit hexadecimal number.
 
@@ -352,16 +352,16 @@ libcurl also provides options to set various passwords. The user name and
 password as shown embedded in the URL can instead get set with the
 \fICURLOPT_USERPWD(3)\fP option. The argument passed to libcurl should be a
 char * to a string in the format "user:password". In a manner like this:
-
+.nf
  curl_easy_setopt(handle, CURLOPT_USERPWD, "myname:thesecret");
-
+.fi
 Another case where name and password might be needed at times, is for those
 users who need to authenticate themselves to a proxy they use. libcurl offers
 another option for this, the \fICURLOPT_PROXYUSERPWD(3)\fP. It is used quite
 similar to the \fICURLOPT_USERPWD(3)\fP option like this:
-
+.nf
  curl_easy_setopt(handle, CURLOPT_PROXYUSERPWD, "myname:thesecret");
-
+.fi
 There's a long time Unix "standard" way of storing FTP user names and
 passwords, namely in the $HOME/.netrc file (on Windows, libcurl also checks
 the %USERPROFILE% environment variable if %HOME% is unset, and tries
@@ -372,9 +372,9 @@ ability to use this file to figure out what set of user name and password to
 use for a particular host. As an extension to the normal functionality,
 libcurl also supports this file for non-FTP protocols such as HTTP. To make
 curl use this file, use the \fICURLOPT_NETRC(3)\fP option:
-
+.nf
  curl_easy_setopt(handle, CURLOPT_NETRC, 1L);
-
+.fi
 And a basic example of how such a .netrc file may look like:
 
 .nf
@@ -389,9 +389,9 @@ without it. There are times when the password is not optional, like when
 you are using an SSL private key for secure transfers.
 
 To pass the known private key password to libcurl:
-
+.nf
  curl_easy_setopt(handle, CURLOPT_KEYPASSWD, "keypassword");
-
+.fi
 .SH "HTTP Authentication"
 The previous chapter showed how to set user name and password for getting
 URLs that require authentication. When using the HTTP protocol, there are
@@ -403,21 +403,21 @@ password in clear-text in the HTTP request, base64-encoded. This is insecure.
 At the time of this writing, libcurl can be built to use: Basic, Digest, NTLM,
 Negotiate (SPNEGO). You can tell libcurl which one to use
 with \fICURLOPT_HTTPAUTH(3)\fP as in:
-
+.nf
  curl_easy_setopt(handle, CURLOPT_HTTPAUTH, CURLAUTH_DIGEST);
-
+.fi
 And when you send authentication to a proxy, you can also set authentication
 type the same way but instead with \fICURLOPT_PROXYAUTH(3)\fP:
-
+.nf
  curl_easy_setopt(handle, CURLOPT_PROXYAUTH, CURLAUTH_NTLM);
-
+.fi
 Both these options allow you to set multiple types (by ORing them together),
 to make libcurl pick the most secure one out of the types the server/proxy
 claims to support. This method does however add a round-trip since libcurl
 must first ask the server what it supports:
-
+.nf
  curl_easy_setopt(handle, CURLOPT_HTTPAUTH, CURLAUTH_DIGEST|CURLAUTH_BASIC);
-
+.fi
 For convenience, you can use the \fICURLAUTH_ANY\fP define (instead of a list
 with specific types) which allows libcurl to use whatever method it wants.
 
@@ -590,9 +590,9 @@ changed even if you do call \fIcurl_easy_perform(3)\fP, you may need to tell
 curl to go back to a plain GET request if you intend to do one as your next
 request. You force an easy handle to go back to GET by using the
 \fICURLOPT_HTTPGET(3)\fP option:
-
+.nf
  curl_easy_setopt(handle, CURLOPT_HTTPGET, 1L);
-
+.fi
 Just setting \fICURLOPT_POSTFIELDS(3)\fP to "" or NULL will *not* stop libcurl
 from doing a POST. It will just make it POST without any data to send!
 
@@ -803,23 +803,23 @@ invoke your own custom FTP commands or even proper FTP directory listings.
 .IP "Proxy Options"
 
 To tell libcurl to use a proxy at a given port number:
-
+.nf
  curl_easy_setopt(handle, CURLOPT_PROXY, "proxy-host.com:8080");
-
+.fi
 Some proxies require user authentication before allowing a request, and you
 pass that information similar to this:
-
+.nf
  curl_easy_setopt(handle, CURLOPT_PROXYUSERPWD, "user:password");
-
+.fi
 If you want to, you can specify the host name only in the
 \fICURLOPT_PROXY(3)\fP option, and set the port number separately with
 \fICURLOPT_PROXYPORT(3)\fP.
 
 Tell libcurl what kind of proxy it is with \fICURLOPT_PROXYTYPE(3)\fP (if not,
 it will default to assume an HTTP proxy):
-
+.nf
  curl_easy_setopt(handle, CURLOPT_PROXYTYPE, CURLPROXY_SOCKS4);
-
+.fi
 .IP "Environment Variables"
 
 libcurl automatically checks and uses a set of environment variables to know
@@ -883,9 +883,9 @@ Again, this is often prevented by the administrators of proxies and is
 rarely allowed.
 
 Tell libcurl to use proxy tunneling like this:
-
+.nf
  curl_easy_setopt(handle, CURLOPT_HTTPPROXYTUNNEL, 1L);
-
+.fi
 In fact, there might even be times when you want to do plain HTTP
 operations using a tunnel like this, as it then enables you to operate on
 the remote server instead of asking the proxy to do so. libcurl will not
@@ -1120,9 +1120,9 @@ they are sent from clients to servers with the Cookie: header.
 
 To just send whatever cookie you want to a server, you can use
 \fICURLOPT_COOKIE(3)\fP to set a cookie string like this:
-
+.nf
  curl_easy_setopt(handle, CURLOPT_COOKIE, "name1=var1; name2=var2;");
-
+.fi
 In many cases, that is not enough. You might want to dynamically save
 whatever cookies the remote server passes to you, and make sure those cookies
 are then used accordingly on later requests.
