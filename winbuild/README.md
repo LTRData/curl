@@ -22,7 +22,7 @@ SPDX-License-Identifier: curl
 ## Prerequisites
 
  If you wish to support zlib, openssl, c-ares, ssh2, you will have to download
- them separately and copy them to the deps directory as shown below:
+ them separately and copy them to the `deps` directory as shown below:
 
     somedirectory\
      |_curl-src
@@ -33,7 +33,7 @@ SPDX-License-Identifier: curl
        |_ include
        |_ bin
 
- It is also possible to create the deps directory in some other random places
+ It is also possible to create the `deps` directory in some other random places
  and tell the `Makefile` its location using the WITH_DEVEL option.
 
 ## Building straight from git
@@ -81,9 +81,9 @@ where `<options>` is one or many of:
 
  - `VC=<num>`                    - VC version. 6 or later.
  - `WITH_DEVEL=<path>`           - Paths for the development files (SSL, zlib, etc.)
-                                   Defaults to sibling directory deps: ../deps
+                                   Defaults to sibling directory: `../deps`
                                    Libraries can be fetched at https://windows.php.net/downloads/php-sdk/deps/
-                                   Uncompress them into the deps folder.
+                                   Uncompress them into the `deps` folder.
  - `WITH_SSL=<dll/static>`       - Enable OpenSSL support, DLL or static
  - `WITH_NGHTTP2=<dll/static>`   - Enable HTTP/2 support, DLL or static
  - `WITH_MSH3=<dll/static>`      - Enable (experimental) HTTP/3 support, DLL or static
@@ -128,7 +128,7 @@ where `<options>` is one or many of:
 
  This option is not recommended unless you have enough development experience
  to know how to match the runtime library for linking (that is, the CRT).  If
- `RTLIBCFG=static` then release builds use /MT and debug builds use /MTd.
+ `RTLIBCFG=static` then release builds use `/MT` and debug builds use `/MTd`.
 
 ## Building your own application with libcurl (Visual Studio example)
 
@@ -185,10 +185,11 @@ where `<options>` is one or many of:
  `libcurl_a_debug.lib` is a static debug build of libcurl.
 
  You may need a separate build of libcurl for each VC configuration combination
- (eg: Debug|Win32, Debug|x64, Release|Win32, Release|x64).
+ (for example: Debug|Win32, Debug|x64, Release|Win32, Release|x64).
 
  You must specify any additional dependencies needed by your build of static
- libcurl (eg: `advapi32.lib;crypt32.lib;normaliz.lib;ws2_32.lib;wldap32.lib`).
+ libcurl (for example:
+ `advapi32.lib;crypt32.lib;normaliz.lib;ws2_32.lib;wldap32.lib`).
 
 ## Legacy Windows and SSL
 
