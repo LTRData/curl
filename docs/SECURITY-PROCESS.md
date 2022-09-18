@@ -24,8 +24,8 @@ reference to the security nature of the commit if done prior to the public
 announcement.
 
 - The person discovering the issue, the reporter, reports the vulnerability on
-  [https://hackerone.com/curl](https://hackerone.com/curl). Issues filed there
-  reach a handful of selected and trusted people.
+  [HackerOne](https://hackerone.com/curl). Issues filed there reach a handful
+  of selected and trusted people.
 
 - Messages that do not relate to the reporting or managing of an undisclosed
   security vulnerability in curl or libcurl are ignored and no further action
@@ -122,7 +122,7 @@ somewhat over time and a list somewhere will only risk getting outdated.
 6. On security advisory release day, push the changes on the curl-www
    repository's remote master branch.
 
-## Hackerone
+## HackerOne
 
 Request the issue to be disclosed. If there are sensitive details present in
 the report and discussion, those should be redacted from the disclosure. The

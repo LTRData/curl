@@ -22,7 +22,7 @@ It is about trust
 This system is about trust. In your local CA certificate store you have certs
 from *trusted* Certificate Authorities that you then can use to verify that
 the server certificates you see are valid. They are signed by one of the
-certificat authorities you trust.
+certificate authorities you trust.
 
 Which certificate authorities do you trust? You can decide to trust the same
 set of companies your operating system trusts, or the set one of the known
@@ -132,10 +132,11 @@ Certificate Verification with NSS
 
 If libcurl was built with NSS support, then depending on the OS distribution,
 it is probably required to take some additional steps to use the system-wide
-CA cert db. RedHat ships with an additional module, libnsspem.so, which
+CA cert db. Red Hat ships with an additional module, libnsspem.so, which
 enables NSS to read the OpenSSL PEM CA bundle. On openSUSE you can install
-p11-kit-nss-trust which makes NSS use the system wide CA certificate store. NSS
-also has a new [database format](https://wiki.mozilla.org/NSS_Shared_DB).
+p11-kit-nss-trust which makes NSS use the system wide CA certificate
+store. NSS also has a new [database
+format](https://wiki.mozilla.org/NSS_Shared_DB).
 
 Starting with version 7.19.7, libcurl automatically adds the 'sql:' prefix to
 the certdb directory (either the set default `/etc/pki/nssdb` or the directory

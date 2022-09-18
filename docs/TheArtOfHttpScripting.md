@@ -169,7 +169,7 @@
  any. No limits. You will then get requests repeated over and over for all the
  given URLs.
 
- Example, send two GETs:
+ Example, send two GET requests:
 
     curl http://url1.example.com http://url2.example.com
 

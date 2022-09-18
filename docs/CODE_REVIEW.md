@@ -70,7 +70,7 @@ on final or release builds.
 Can the mallocs be avoided? Do not introduce mallocs in any hot paths. If
 there are (new) mallocs, can they be combined into fewer calls?
 
-Are all allocations handled in errorpaths to avoid leaks and crashes?
+Are all allocations handled in error paths to avoid leaks and crashes?
 
 ## Thread-safety
 

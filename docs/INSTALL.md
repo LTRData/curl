@@ -140,10 +140,10 @@ These options are provided to select the TLS backend to use.
  - [Run-Time Library Compiler Options](https://docs.microsoft.com/cpp/build/reference/md-mt-ld-use-run-time-library)
  - [Potential Errors Passing CRT Objects Across DLL Boundaries](https://docs.microsoft.com/cpp/c-runtime-library/potential-errors-passing-crt-objects-across-dll-boundaries)
 
-If your app is misbehaving in some strange way, or it is suffering from
-memory corruption, before asking for further help, please try first to
-rebuild every single library your app uses as well as your app using the
-debug multithreaded dynamic C runtime.
+If your app is misbehaving in some strange way, or it is suffering from memory
+corruption, before asking for further help, please try first to rebuild every
+single library your app uses as well as your app using the debug
+multi-threaded dynamic C runtime.
 
  If you get linkage errors read section 5.7 of the FAQ document.
 
@@ -382,7 +382,7 @@ For IBM i (formerly OS/400), you can use curl in two different ways:
 There are some additional limitations and quirks with curl on this platform;
 they affect both environments.
 
-## Multithreading notes
+## Multi-threading notes
 
 By default, jobs in IBM i will not start with threading enabled. (Exceptions
 include interactive PASE sessions started by `QP2TERM` or SSH.) If you use
@@ -407,9 +407,9 @@ Download and unpack the curl package.
 
 Set environment variables to point to the cross-compile toolchain and call
 configure with any options you need. Be sure and specify the `--host` and
-`--build` parameters at configuration time. The following script is an
-example of cross-compiling for the IBM 405GP PowerPC processor using the
-toolchain from MonteVista for Hardhat Linux.
+`--build` parameters at configuration time. The following script is an example
+of cross-compiling for the IBM 405GP PowerPC processor using the toolchain on
+Linux.
 
 ```bash
 #! /bin/sh
@@ -478,7 +478,7 @@ disabling support for some feature:
  - `--disable-ntlm-wb` (NTLM WinBind)
  - `--disable-progress-meter` (graphical progress meter in library)
  - `--disable-proxy` (HTTP and SOCKS proxies)
- - `--disable-pthreads` (multithreading)
+ - `--disable-pthreads` (multi-threading)
  - `--disable-socketpair` (socketpair for async name resolving)
  - `--disable-threaded-resolver`  (threaded name resolver)
  - `--disable-tls-srp` (Secure Remote Password authentication for TLS)
