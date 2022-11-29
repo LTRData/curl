@@ -48,10 +48,6 @@
 #include <signal.h>
 #endif
 
-#ifdef HAVE_PROCESS_H
-#include <process.h>
-#endif
-
 #include "urldata.h"
 #include "sendf.h"
 #include "hostip.h"
@@ -303,8 +299,10 @@ static struct Curl_dns_entry *fetch_addr(struct Curl_easy *data,
     bool found = false;
     struct Curl_addrinfo *addr = dns->addr;
 
+#ifdef PF_INET6
     if(data->conn->ip_version == CURL_IPRESOLVE_V6)
       pf = PF_INET6;
+#endif
 
     while(addr) {
       if(addr->ai_family == pf) {

@@ -49,6 +49,7 @@
 #include "ngtcp2.h"
 #include "multiif.h"
 #include "strcase.h"
+#include "cfilters.h"
 #include "connect.h"
 #include "strerror.h"
 #include "dynbuf.h"
@@ -300,17 +301,19 @@ static SSL_CTX *quic_ssl_ctx(struct Curl_easy *data)
 static CURLcode quic_set_client_cert(struct Curl_easy *data,
                                      struct quicsocket *qs)
 {
-  struct connectdata *conn = data->conn;
   SSL_CTX *ssl_ctx = qs->sslctx;
-  char *const ssl_cert = SSL_SET_OPTION(primary.clientcert);
-  const struct curl_blob *ssl_cert_blob = SSL_SET_OPTION(primary.cert_blob);
-  const char *const ssl_cert_type = SSL_SET_OPTION(cert_type);
+  const struct ssl_config_data *ssl_config;
 
-  if(ssl_cert || ssl_cert_blob || ssl_cert_type) {
+  ssl_config = Curl_ssl_get_config(data, FIRSTSOCKET);
+  DEBUGASSERT(ssl_config);
+
+  if(ssl_config->primary.clientcert || ssl_config->primary.cert_blob
+     || ssl_config->cert_type) {
     return Curl_ossl_set_client_cert(
-        data, ssl_ctx, ssl_cert, ssl_cert_blob, ssl_cert_type,
-        SSL_SET_OPTION(key), SSL_SET_OPTION(key_blob),
-        SSL_SET_OPTION(key_type), SSL_SET_OPTION(key_passwd));
+        data, ssl_ctx, ssl_config->primary.clientcert,
+        ssl_config->primary.cert_blob, ssl_config->cert_type,
+        ssl_config->key, ssl_config->key_blob,
+        ssl_config->key_type, ssl_config->key_passwd);
   }
 
   return CURLE_OK;
@@ -760,6 +763,7 @@ static ngtcp2_callbacks ng_callbacks = {
   NULL, /* version_negotiation */
   cb_recv_rx_key,
   NULL, /* recv_tx_key */
+  NULL, /* early_data_rejected */
 };
 
 /*
@@ -893,7 +897,7 @@ static int ng_getsock(struct Curl_easy *data, struct connectdata *conn,
 
   socks[0] = conn->sock[FIRSTSOCKET];
 
-  /* in a HTTP/2 connection we can basically always get a frame so we should
+  /* in an HTTP/2 connection we can basically always get a frame so we should
      always be ready for one */
   bitmap |= GETSOCK_READSOCK(FIRSTSOCKET);
 
@@ -1169,7 +1173,7 @@ static int cb_h3_recv_header(nghttp3_conn *conn, int64_t stream_id,
     }
   }
   else {
-    /* store as a HTTP1-style header */
+    /* store as an HTTP1-style header */
     result = write_data(stream, h3name.base, h3name.len);
     if(result) {
       return -1;
@@ -1692,9 +1696,15 @@ static CURLcode ng_has_connected(struct Curl_easy *data,
       return result;
     infof(data, "Verified certificate just fine");
 #elif defined(USE_GNUTLS)
-    result = Curl_gtls_verifyserver(data, conn, conn->quic->ssl, FIRSTSOCKET);
+    result = Curl_gtls_verifyserver(conn->cfilter[FIRSTSOCKET],
+                                    data, conn->quic->ssl);
 #elif defined(USE_WOLFSSL)
-    char *snihost = Curl_ssl_snihost(data, SSL_HOST_NAME(), NULL);
+    const char *hostname, *disp_hostname;
+    int port;
+    char *snihost;
+
+    Curl_conn_get_host(data, FIRSTSOCKET, &hostname, &disp_hostname, &port);
+    snihost = Curl_ssl_snihost(data, hostname, NULL);
     if(!snihost ||
        (wolfSSL_check_domain_name(conn->quic->ssl, snihost) == SSL_FAILURE))
       return CURLE_PEER_FAILED_VERIFICATION;
@@ -1703,6 +1713,11 @@ static CURLcode ng_has_connected(struct Curl_easy *data,
   }
   else
     infof(data, "Skipped certificate verification");
+#ifdef USE_OPENSSL
+  if(data->set.ssl.certinfo)
+    /* asked to gather certificate info */
+    (void)Curl_ossl_certchain(data, conn->quic->ssl);
+#endif
   return result;
 }
 
@@ -1828,15 +1843,17 @@ static CURLcode do_sendmsg(size_t *psent, struct Curl_easy *data, int sockfd,
                            size_t pktlen, size_t gsolen)
 {
 #ifdef HAVE_SENDMSG
-  struct iovec msg_iov = {(void *)pkt, pktlen};
+  struct iovec msg_iov;
   struct msghdr msg = {0};
-  uint8_t msg_ctrl[32];
   ssize_t sent;
 #if defined(__linux__) && defined(UDP_SEGMENT)
+  uint8_t msg_ctrl[32];
   struct cmsghdr *cm;
 #endif
 
   *psent = 0;
+  msg_iov.iov_base = (uint8_t *)pkt;
+  msg_iov.iov_len = pktlen;
   msg.msg_iov = &msg_iov;
   msg.msg_iovlen = 1;
 
@@ -1981,9 +1998,9 @@ static CURLcode ng_flush_egress(struct Curl_easy *data,
   ngtcp2_ssize outlen;
   uint8_t *outpos = qs->pktbuf;
   size_t max_udp_payload_size =
-      ngtcp2_conn_get_max_udp_payload_size(qs->qconn);
+      ngtcp2_conn_get_max_tx_udp_payload_size(qs->qconn);
   size_t path_max_udp_payload_size =
-      ngtcp2_conn_get_path_max_udp_payload_size(qs->qconn);
+      ngtcp2_conn_get_path_max_tx_udp_payload_size(qs->qconn);
   size_t max_pktcnt =
       CURLMIN(MAX_PKT_BURST, qs->pktbuflen / max_udp_payload_size);
   size_t pktcnt = 0;

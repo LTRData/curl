@@ -74,6 +74,7 @@ LIB_VTLS_HFILES =           \
   vtls/schannel.h           \
   vtls/sectransp.h          \
   vtls/vtls.h               \
+  vtls/vtls_int.h           \
   vtls/wolfssl.h            \
   vtls/x509asn1.h
 
@@ -105,6 +106,7 @@ LIB_CFILES =         \
   base64.c           \
   bufref.c           \
   c-hyper.c          \
+  cfilters.c         \
   conncache.c        \
   connect.c          \
   content_encoding.c \
@@ -177,6 +179,7 @@ LIB_CFILES =         \
   multi.c            \
   netrc.c            \
   nonblock.c         \
+  noproxy.c          \
   openldap.c         \
   parsedate.c        \
   pingpong.c         \
@@ -226,6 +229,7 @@ LIB_HFILES =         \
   asyn.h             \
   bufref.h           \
   c-hyper.h          \
+  cfilters.h         \
   conncache.h        \
   connect.h          \
   content_encoding.h \
@@ -271,6 +275,7 @@ LIB_HFILES =         \
   fileinfo.h         \
   fopen.h            \
   formdata.h         \
+  functypes.h        \
   ftp.h              \
   ftplistparser.h    \
   getinfo.h          \
@@ -300,6 +305,7 @@ LIB_HFILES =         \
   multiif.h          \
   netrc.h            \
   nonblock.h         \
+  noproxy.h          \
   parsedate.h        \
   pingpong.h         \
   pop3.h             \

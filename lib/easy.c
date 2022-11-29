@@ -71,7 +71,6 @@
 #include "mime.h"
 #include "amigaos.h"
 #include "warnless.h"
-#include "multiif.h"
 #include "sigpipe.h"
 #include "vssh/ssh.h"
 #include "setopt.h"
@@ -829,7 +828,7 @@ static CURLcode dupset(struct Curl_easy *dst, struct Curl_easy *src)
   /* Copy src->set into dst->set first, then deal with the strings
      afterwards */
   dst->set = src->set;
-  Curl_mime_initpart(&dst->set.mimepost, dst);
+  Curl_mime_initpart(&dst->set.mimepost);
 
   /* clear all string pointers first */
   memset(dst->set.str, 0, STRING_LAST * sizeof(char *));
@@ -863,7 +862,7 @@ static CURLcode dupset(struct Curl_easy *dst, struct Curl_easy *src)
   }
 
   /* Duplicate mime data. */
-  result = Curl_mime_duppart(&dst->set.mimepost, &src->set.mimepost);
+  result = Curl_mime_duppart(dst, &dst->set.mimepost, &src->set.mimepost);
 
   if(src->set.resolve)
     dst->state.resolve = dst->set.resolve;
@@ -944,7 +943,7 @@ struct Curl_easy *curl_easy_duphandle(struct Curl_easy *data)
       goto fail;
   }
 
-#ifdef USE_ALTSVC
+#ifndef CURL_DISABLE_ALTSVC
   if(data->asi) {
     outcurl->asi = Curl_altsvc_init();
     if(!outcurl->asi)
@@ -1235,7 +1234,7 @@ CURLcode curl_easy_recv(struct Curl_easy *data, void *buffer, size_t buflen,
  * This is the private internal version of curl_easy_send()
  */
 CURLcode Curl_senddata(struct Curl_easy *data, const void *buffer,
-                       size_t buflen, size_t *n)
+                       size_t buflen, ssize_t *n)
 {
   curl_socket_t sfd;
   CURLcode result;
@@ -1264,7 +1263,7 @@ CURLcode Curl_senddata(struct Curl_easy *data, const void *buffer,
   if(!result && !n1)
     return CURLE_AGAIN;
 
-  *n = (size_t)n1;
+  *n = n1;
 
   return result;
 }
@@ -1276,10 +1275,14 @@ CURLcode Curl_senddata(struct Curl_easy *data, const void *buffer,
 CURLcode curl_easy_send(struct Curl_easy *data, const void *buffer,
                         size_t buflen, size_t *n)
 {
+  ssize_t written = 0;
+  CURLcode result;
   if(Curl_is_in_callback(data))
     return CURLE_RECURSIVE_API_CALL;
 
-  return Curl_senddata(data, buffer, buflen, n);
+  result = Curl_senddata(data, buffer, buflen, &written);
+  *n = (size_t)written;
+  return result;
 }
 
 /*
