@@ -66,3 +66,4 @@ libstandaloneengine.a
 tests/string
 out
 *.pch
+tests/config

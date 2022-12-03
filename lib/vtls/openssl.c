@@ -283,6 +283,7 @@ struct ssl_backend_data {
   SSL_CTX* ctx;
   SSL*     handle;
   X509*    server_cert;
+  CURLcode io_result;       /* result of last BIO cfilter operation */
 #ifndef HAVE_KEYLOG_CALLBACK
   /* Set to true once a valid keylog entry has been created to avoid dupes. */
   bool     keylog_done;
@@ -710,6 +711,7 @@ static int bio_cf_out_write(BIO *bio, const char *buf, int blen)
   /* DEBUGF(infof(data, CFMSG(cf, "bio_cf_out_write(len=%d) -> %d, err=%d"),
          blen, (int)nwritten, result)); */
   BIO_clear_retry_flags(bio);
+  connssl->backend->io_result = result;
   if(nwritten < 0) {
     if(CURLE_AGAIN == result) {
       BIO_set_retry_write(bio);
@@ -739,6 +741,7 @@ static int bio_cf_in_read(BIO *bio, char *buf, int blen)
   /* DEBUGF(infof(data, CFMSG(cf, "bio_cf_in_read(len=%d) -> %d, err=%d"),
          blen, (int)nread, result)); */
   BIO_clear_retry_flags(bio);
+  connssl->backend->io_result = result;
   if(nread < 0) {
     if(CURLE_AGAIN == result) {
       BIO_set_retry_read(bio);
@@ -895,12 +898,25 @@ static const char *SSL_ERROR_to_str(int err)
   }
 }
 
+static size_t ossl_version(char *buffer, size_t size);
+
 /* Return error string for last OpenSSL error
  */
 static char *ossl_strerror(unsigned long error, char *buf, size_t size)
 {
-  if(size)
+  size_t len;
+  DEBUGASSERT(size);
+  *buf = '\0';
+
+  len = ossl_version(buf, size);
+  DEBUGASSERT(len < (size - 2));
+  if(len < (size - 2)) {
+    buf += len;
+    size -= (len + 2);
+    *buf++ = ':';
+    *buf++ = ' ';
     *buf = '\0';
+  }
 
 #ifdef OPENSSL_IS_BORINGSSL
   ERR_error_string_n((uint32_t)error, buf, size);
@@ -908,7 +924,7 @@ static char *ossl_strerror(unsigned long error, char *buf, size_t size)
   ERR_error_string_n(error, buf, size);
 #endif
 
-  if(size > 1 && !*buf) {
+  if(!*buf) {
     strncpy(buf, (error ? "Unknown error" : "No error"), size);
     buf[size - 1] = '\0';
   }
@@ -3922,6 +3938,9 @@ static CURLcode ossl_connect_step2(struct Curl_cfilter *cf,
       return CURLE_OK;
     }
 #endif
+    else if(backend->io_result == CURLE_AGAIN) {
+      return CURLE_OK;
+    }
     else {
       /* untreated error */
       unsigned long errdetail;
@@ -4492,8 +4511,6 @@ static bool ossl_data_pending(struct Curl_cfilter *cf,
   return FALSE;
 }
 
-static size_t ossl_version(char *buffer, size_t size);
-
 static ssize_t ossl_send(struct Curl_cfilter *cf,
                          struct Curl_easy *data,
                          const void *mem,
@@ -4534,6 +4551,12 @@ static ssize_t ossl_send(struct Curl_cfilter *cf,
     case SSL_ERROR_SYSCALL:
       {
         int sockerr = SOCKERRNO;
+
+        if(backend->io_result == CURLE_AGAIN) {
+          *curlcode = CURLE_AGAIN;
+          rc = -1;
+          goto out;
+        }
         sslerror = ERR_get_error();
         if(sslerror)
           ossl_strerror(sslerror, error_buffer, sizeof(error_buffer));
@@ -4634,6 +4657,11 @@ static ssize_t ossl_recv(struct Curl_cfilter *cf,
       /* openssl/ssl.h for SSL_ERROR_SYSCALL says "look at error stack/return
          value/errno" */
       /* https://www.openssl.org/docs/crypto/ERR_get_error.html */
+      if(backend->io_result == CURLE_AGAIN) {
+        *curlcode = CURLE_AGAIN;
+        nread = -1;
+        goto out;
+      }
       sslerror = ERR_get_error();
       if((nread < 0) || sslerror) {
         /* If the return code was negative or there actually is an error in the
