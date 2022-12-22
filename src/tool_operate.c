@@ -969,7 +969,21 @@ static CURLcode single_transfer(struct GlobalConfig *global,
           /* open file for output: */
           if(strcmp(config->headerfile, "-")) {
             FILE *newfile;
-            newfile = fopen(config->headerfile, per->prev == NULL?"wb":"ab");
+
+            /*
+             * this checks if the previous transfer had the same
+             * OperationConfig, which would mean, that the an output file has
+             * already been created and data can be appened to it, instead
+             * of overwriting it.
+             * TODO: Consider placing the file handle inside the
+             * OperationConfig, so that it does not need to be opened/closed
+             * for every transfer.
+             */
+            if(per->prev && per->prev->config == config)
+              newfile = fopen(config->headerfile, "ab+");
+            else
+              newfile = fopen(config->headerfile, "wb+");
+
             if(!newfile) {
               warnf(global, "Failed to open %s\n", config->headerfile);
               result = CURLE_WRITE_ERROR;
@@ -1925,8 +1939,7 @@ static CURLcode single_transfer(struct GlobalConfig *global,
 
         /* new in curl 7.19.4 */
         if(config->socks5_gssapi_nec)
-          my_setopt_str(curl, CURLOPT_SOCKS5_GSSAPI_NEC,
-                        config->socks5_gssapi_nec);
+          my_setopt_str(curl, CURLOPT_SOCKS5_GSSAPI_NEC, 1L);
 
         /* new in curl 7.55.0 */
         if(config->socks5_auth)
