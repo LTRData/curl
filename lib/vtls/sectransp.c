@@ -5,8 +5,8 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 2012 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
- * Copyright (C) 2012 - 2017, Nick Zitzmann, <nickzman@gmail.com>.
+ * Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) Nick Zitzmann, <nickzman@gmail.com>.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -1790,20 +1790,25 @@ static CURLcode sectransp_connect_step1(struct Curl_cfilter *cf,
       CFMutableArrayRef alpnArr = CFArrayCreateMutable(NULL, 0,
                                                        &kCFTypeArrayCallBacks);
 
-#ifdef USE_HTTP2
-      if(data->state.httpwant >= CURL_HTTP_VERSION_2
-#ifndef CURL_DISABLE_PROXY
-         && (!isproxy || !cf->conn->bits.tunnel_proxy)
-#endif
-        ) {
-        CFArrayAppendValue(alpnArr, CFSTR(ALPN_H2));
-        infof(data, VTLS_INFOF_ALPN_OFFER_1STR, ALPN_H2);
+      if(data->state.httpwant == CURL_HTTP_VERSION_1_0) {
+        CFArrayAppendValue(alpnArr, CFSTR(ALPN_HTTP_1_0));
+        infof(data, VTLS_INFOF_ALPN_OFFER_1STR, ALPN_HTTP_1_0);
       }
+      else {
+#ifdef USE_HTTP2
+        if(data->state.httpwant >= CURL_HTTP_VERSION_2
+#ifndef CURL_DISABLE_PROXY
+           && (!isproxy || !cf->conn->bits.tunnel_proxy)
+#endif
+          ) {
+          CFArrayAppendValue(alpnArr, CFSTR(ALPN_H2));
+          infof(data, VTLS_INFOF_ALPN_OFFER_1STR, ALPN_H2);
+        }
 #endif
 
-      CFArrayAppendValue(alpnArr, CFSTR(ALPN_HTTP_1_1));
-      infof(data, VTLS_INFOF_ALPN_OFFER_1STR, ALPN_HTTP_1_1);
-
+        CFArrayAppendValue(alpnArr, CFSTR(ALPN_HTTP_1_1));
+        infof(data, VTLS_INFOF_ALPN_OFFER_1STR, ALPN_HTTP_1_1);
+      }
       /* expects length prefixed preference ordered list of protocols in wire
        * format
        */

@@ -7,7 +7,7 @@
  *                            | (__| |_| |  _ <| |___
  *                             \___|\___/|_| \_\_____|
  *
- * Copyright (C) 1998 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+ * Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
  *
  * This software is licensed as described in the file COPYING, which
  * you should have received as part of this distribution. The terms
@@ -30,10 +30,16 @@
 
 #include <msh3.h>
 
-struct quicsocket {
-  MSH3_API* api;
-  MSH3_CONNECTION* conn;
-};
+void Curl_msh3_ver(char *p, size_t len);
+
+CURLcode Curl_cf_msh3_create(struct Curl_cfilter **pcf,
+                             struct Curl_easy *data,
+                             struct connectdata *conn,
+                             const struct Curl_addrinfo *ai);
+
+bool Curl_conn_is_msh3(const struct Curl_easy *data,
+                       const struct connectdata *conn,
+                       int sockindex);
 
 #endif /* USE_MSQUIC */
 
