@@ -286,7 +286,7 @@ static CURLcode AcceptServerConnect(struct Curl_easy *data)
   conn->bits.do_more = FALSE;
 
   (void)curlx_nonblock(s, TRUE); /* enable non-blocking */
-  /* Replace any filter on SECONDARY with one listeing on this socket */
+  /* Replace any filter on SECONDARY with one listening on this socket */
   result = Curl_conn_tcp_accepted_set(data, conn, SECONDARYSOCKET, &s);
   if(result)
     return result;
@@ -1010,9 +1010,9 @@ static CURLcode ftp_state_use_port(struct Curl_easy *data,
 
     if(*addr != '\0') {
       /* attempt to get the address of the given interface name */
-      switch(Curl_if2ip(conn->ip_addr->ai_family,
+      switch(Curl_if2ip(conn->remote_addr->family,
 #ifdef ENABLE_IPV6
-                        Curl_ipv6_scope(conn->ip_addr->ai_addr),
+                        Curl_ipv6_scope(&conn->remote_addr->sa_addr),
                         conn->scope_id,
 #endif
                         addr, hbuf, sizeof(hbuf))) {
@@ -1252,7 +1252,7 @@ static CURLcode ftp_state_use_port(struct Curl_easy *data,
   /* store which command was sent */
   ftpc->count1 = fcmd;
 
-  /* Replace any filter on SECONDARY with one listeing on this socket */
+  /* Replace any filter on SECONDARY with one listening on this socket */
   result = Curl_conn_tcp_listen_set(data, conn, SECONDARYSOCKET, &portsock);
   if(result)
     goto out;
@@ -2554,13 +2554,11 @@ static CURLcode ftp_state_loggedin(struct Curl_easy *data)
 
 /* for USER and PASS responses */
 static CURLcode ftp_state_user_resp(struct Curl_easy *data,
-                                    int ftpcode,
-                                    ftpstate instate)
+                                    int ftpcode)
 {
   CURLcode result = CURLE_OK;
   struct connectdata *conn = data->conn;
   struct ftp_conn *ftpc = &conn->proto.ftpc;
-  (void)instate; /* no use for this yet */
 
   /* some need password anyway, and others just return 2xx ignored */
   if((ftpcode == 331) && (ftpc->state == FTP_USER)) {
@@ -2655,7 +2653,7 @@ static CURLcode ftp_statemachine(struct Curl_easy *data,
         /* 230 User logged in - already! Take as 220 if TLS required. */
         if(data->set.use_ssl <= CURLUSESSL_TRY ||
            conn->bits.ftp_use_control_ssl)
-          return ftp_state_user_resp(data, ftpcode, ftpc->state);
+          return ftp_state_user_resp(data, ftpcode);
       }
       else if(ftpcode != 220) {
         failf(data, "Got a %03d ftp-server response when 220 was expected",
@@ -2760,7 +2758,7 @@ static CURLcode ftp_statemachine(struct Curl_easy *data,
 
     case FTP_USER:
     case FTP_PASS:
-      result = ftp_state_user_resp(data, ftpcode, ftpc->state);
+      result = ftp_state_user_resp(data, ftpcode);
       break;
 
     case FTP_ACCT:

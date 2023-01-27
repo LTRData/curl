@@ -74,8 +74,10 @@ char *Curl_checkProxyheaders(struct Curl_easy *data,
                              const struct connectdata *conn,
                              const char *thisheader,
                              const size_t thislen);
+struct HTTP; /* see below */
 CURLcode Curl_buffer_send(struct dynbuf *in,
                           struct Curl_easy *data,
+                          struct HTTP *http,
                           curl_off_t *bytes_written,
                           curl_off_t included_body_bytes,
                           int socketindex);
@@ -198,6 +200,7 @@ struct HTTP {
     void *fread_in;           /* backup storage for fread_in pointer */
     const char *postdata;
     curl_off_t postsize;
+    struct Curl_easy *data;
   } backup;
 
   enum {
@@ -236,7 +239,6 @@ struct HTTP {
 #if defined(USE_NGHTTP2) || defined(USE_NGHTTP3)
   bool bodystarted;
   int status_code; /* HTTP status code */
-  bool closed; /* TRUE on HTTP2 stream close */
   char *mem;     /* points to a buffer in memory to store received data */
   size_t len;    /* size of the buffer 'mem' points to */
   size_t memlen; /* size of data copied to mem */
@@ -246,6 +248,7 @@ struct HTTP {
   const uint8_t *upload_mem; /* points to a buffer to read from */
   size_t upload_len; /* size of the buffer 'upload_mem' points to */
   curl_off_t upload_left; /* number of bytes left to upload */
+  bool closed; /* TRUE on HTTP2 stream close */
 #endif
 
 #ifdef ENABLE_QUIC
@@ -275,6 +278,7 @@ struct HTTP {
   /* Receive Buffer (Headers and Data) */
   uint8_t* recv_buf;
   size_t recv_buf_alloc;
+  size_t recv_buf_max;
   /* Receive Headers */
   size_t recv_header_len;
   bool recv_header_complete;

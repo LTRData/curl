@@ -159,15 +159,14 @@ static void mbed_debug(void *context, int level, const char *f_name,
 static int bio_cf_write(void *bio, const unsigned char *buf, size_t blen)
 {
   struct Curl_cfilter *cf = bio;
-  struct ssl_connect_data *connssl = cf->ctx;
-  struct Curl_easy *data = connssl->call_data;
+  struct Curl_easy *data = CF_DATA_CURRENT(cf);
   ssize_t nwritten;
   CURLcode result;
 
   DEBUGASSERT(data);
   nwritten = Curl_conn_cf_send(cf->next, data, (char *)buf, blen, &result);
-  /* DEBUGF(infof(data, CFMSG(cf, "bio_cf_out_write(len=%d) -> %d, err=%d"),
-         blen, (int)nwritten, result)); */
+  DEBUGF(LOG_CF(data, cf, "bio_cf_out_write(len=%zu) -> %zd, err=%d",
+                blen, nwritten, result));
   if(nwritten < 0 && CURLE_AGAIN == result) {
     nwritten = MBEDTLS_ERR_SSL_WANT_WRITE;
   }
@@ -177,8 +176,7 @@ static int bio_cf_write(void *bio, const unsigned char *buf, size_t blen)
 static int bio_cf_read(void *bio, unsigned char *buf, size_t blen)
 {
   struct Curl_cfilter *cf = bio;
-  struct ssl_connect_data *connssl = cf->ctx;
-  struct Curl_easy *data = connssl->call_data;
+  struct Curl_easy *data = CF_DATA_CURRENT(cf);
   ssize_t nread;
   CURLcode result;
 
@@ -188,8 +186,8 @@ static int bio_cf_read(void *bio, unsigned char *buf, size_t blen)
     return 0;
 
   nread = Curl_conn_cf_recv(cf->next, data, (char *)buf, blen, &result);
-  /* DEBUGF(infof(data, CFMSG(cf, "bio_cf_in_read(len=%d) -> %d, err=%d"),
-         blen, (int)nread, result)); */
+  DEBUGF(LOG_CF(data, cf, "bio_cf_in_read(len=%zu) -> %zd, err=%d",
+                blen, nread, result));
   if(nread < 0 && CURLE_AGAIN == result) {
     nread = MBEDTLS_ERR_SSL_WANT_READ;
   }

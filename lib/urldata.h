@@ -113,23 +113,6 @@ typedef unsigned int curl_prot_t;
    input easier and better. */
 #define CURL_MAX_INPUT_LENGTH 8000000
 
-/* Macros intended for DEBUGF logging, use like:
- * DEBUGF(infof(data, CFMSG(cf, "this filter %s rocks"), "very much"));
- * and it will output:
- * [CONN-1-0][CF-SSL] this filter very much rocks
- * on connection #1 with sockindex 0 for filter of type "SSL". */
-#define DMSG(d,msg)  \
-  "[CONN-%ld] "msg, (d)->conn->connection_id
-#define DMSGI(d,i,msg)  \
-  "[CONN-%ld-%d] "msg, (d)->conn->connection_id, (i)
-#define CMSG(c,msg)  \
-  "[CONN-%ld] "msg, (c)->connection_id
-#define CMSGI(c,i,msg)  \
-  "[CONN-%ld-%d] "msg, (c)->connection_id, (i)
-#define CFMSG(cf,msg)  \
-  "[CONN-%ld-%d][CF-%s] "msg, (cf)->conn->connection_id, \
-  (cf)->sockindex, (cf)->cft->name
-
 
 #include "cookie.h"
 #include "psl.h"
@@ -188,6 +171,7 @@ typedef CURLcode (*Curl_datastream)(struct Curl_easy *data,
 #include "wildcard.h"
 #include "multihandle.h"
 #include "c-hyper.h"
+#include "cf-socket.h"
 
 #ifdef HAVE_GSSAPI
 # ifdef HAVE_GSSGNU
@@ -267,8 +251,6 @@ typedef enum {
 struct ssl_backend_data;
 
 struct ssl_primary_config {
-  long version;          /* what version the client wants to use */
-  long version_max;      /* max supported version the client wants to use */
   char *CApath;          /* certificate dir (doesn't work on windows) */
   char *CAfile;          /* certificate to verify peer against */
   char *issuercert;      /* optional issuer certificate filename */
@@ -286,6 +268,8 @@ struct ssl_primary_config {
 #endif
   char *curves;          /* list of curves to use */
   unsigned char ssl_options;  /* the CURLOPT_SSL_OPTIONS bitmask */
+  unsigned int version_max; /* max supported version the client wants to use */
+  unsigned char version;    /* what version the client wants to use */
   BIT(verifypeer);       /* set TRUE if this is desired */
   BIT(verifyhost);       /* set TRUE if CN/SAN must match hostname */
   BIT(verifystatus);     /* set TRUE if certificate status must be checked */
@@ -907,10 +891,9 @@ struct connectdata {
      there is no name resolve done. */
   struct Curl_dns_entry *dns_entry;
 
-  /* 'ip_addr' is the particular IP we connected to. It points to a struct
-     within the DNS cache, so this pointer is only valid as long as the DNS
-     cache entry remains locked. It gets unlocked in multi_done() */
-  const struct Curl_addrinfo *ip_addr;
+  /* 'remote_addr' is the particular IP we connected to. it is owned, set
+   * and NULLed by the connected socket filter (if there is one). */
+  const struct Curl_sockaddr_ex *remote_addr;
 
   struct hostname host;
   char *hostname_resolve; /* host name to resolve to address, allocated */

@@ -73,6 +73,7 @@
 #include "curl_memory.h"
 #include "memdebug.h"
 
+
 /* convenience macro to check if this handle is using a shared SSL session */
 #define SSLSESSION_SHARED(data) (data->share &&                        \
                                  (data->share->specifier &             \
@@ -268,8 +269,8 @@ void Curl_ssl_cleanup(void)
 static bool ssl_prefs_check(struct Curl_easy *data)
 {
   /* check for CURLOPT_SSLVERSION invalid parameter value */
-  const long sslver = data->set.ssl.primary.version;
-  if((sslver < 0) || (sslver >= CURL_SSLVERSION_LAST)) {
+  const unsigned char sslver = data->set.ssl.primary.version;
+  if(sslver >= CURL_SSLVERSION_LAST) {
     failf(data, "Unrecognized parameter value passed via CURLOPT_SSLVERSION");
     return FALSE;
   }
@@ -312,13 +313,6 @@ static void cf_ctx_free(struct ssl_connect_data *ctx)
     free(ctx->backend);
     free(ctx);
   }
-}
-
-static void cf_ctx_set_data(struct Curl_cfilter *cf,
-                            struct Curl_easy *data)
-{
-  if(cf->ctx)
-    ((struct ssl_connect_data *)cf->ctx)->call_data = data;
 }
 
 static CURLcode ssl_connect(struct Curl_cfilter *cf, struct Curl_easy *data)
@@ -1412,53 +1406,80 @@ CURLsslset Curl_init_sslset_nolock(curl_sslbackend id, const char *name,
 
 #ifdef USE_SSL
 
+static void free_hostname(struct ssl_connect_data *connssl)
+{
+  if(connssl->dispname != connssl->hostname)
+    free(connssl->dispname);
+  free(connssl->hostname);
+  connssl->hostname = connssl->dispname = NULL;
+}
+
 static void cf_close(struct Curl_cfilter *cf, struct Curl_easy *data)
 {
   struct ssl_connect_data *connssl = cf->ctx;
-  /* TODO: close_one closes BOTH conn->ssl AND conn->proxy_ssl for this
-   * sockindex (if in use). Gladly, it is safe to call more than once. */
   if(connssl) {
     Curl_ssl->close(cf, data);
     connssl->state = ssl_connection_none;
+    free_hostname(connssl);
   }
   cf->connected = FALSE;
 }
 
-static void reinit_hostname(struct Curl_cfilter *cf)
+static CURLcode reinit_hostname(struct Curl_cfilter *cf)
 {
   struct ssl_connect_data *connssl = cf->ctx;
+  const char *ehostname, *edispname;
+  int eport;
 
+  /* We need the hostname for SNI negotiation. Once handshaked, this
+   * remains the SNI hostname for the TLS connection. But when the
+   * connection is reused, the settings in cf->conn might change.
+   * So we keep a copy of the hostname we use for SNI.
+   */
 #ifndef CURL_DISABLE_PROXY
   if(Curl_ssl_cf_is_proxy(cf)) {
-    /* TODO: there is not definition for a proxy setup on a secondary conn */
-    connssl->hostname = cf->conn->http_proxy.host.name;
-    connssl->dispname = cf->conn->http_proxy.host.dispname;
-    connssl->port = cf->conn->http_proxy.port;
+    ehostname = cf->conn->http_proxy.host.name;
+    edispname = cf->conn->http_proxy.host.dispname;
+    eport = cf->conn->http_proxy.port;
   }
   else
 #endif
   {
-    /* TODO: secondaryhostname is set to the IP address we connect to
-     * in the FTP handler, it is assumed that host verification uses the
-     * hostname from FIRSTSOCKET */
-    if(cf->sockindex == SECONDARYSOCKET && 0) {
-      connssl->hostname = cf->conn->secondaryhostname;
-      connssl->dispname = connssl->hostname;
-      connssl->port = cf->conn->secondary_port;
+    ehostname = cf->conn->host.name;
+    edispname = cf->conn->host.dispname;
+    eport = cf->conn->remote_port;
+  }
+
+  /* change if ehostname changed */
+  if(ehostname && (!connssl->hostname
+                   || strcmp(ehostname, connssl->hostname))) {
+    free_hostname(connssl);
+    connssl->hostname = strdup(ehostname);
+    if(!connssl->hostname) {
+      free_hostname(connssl);
+      return CURLE_OUT_OF_MEMORY;
     }
+    if(!edispname || !strcmp(ehostname, edispname))
+      connssl->dispname = connssl->hostname;
     else {
-      connssl->hostname = cf->conn->host.name;
-      connssl->dispname = cf->conn->host.dispname;
-      connssl->port = cf->conn->remote_port;
+      connssl->dispname = strdup(edispname);
+      if(!connssl->dispname) {
+        free_hostname(connssl);
+        return CURLE_OUT_OF_MEMORY;
+      }
     }
   }
-  DEBUGASSERT(connssl->hostname);
+  connssl->port = eport;
+  return CURLE_OK;
 }
 
 static void ssl_cf_destroy(struct Curl_cfilter *cf, struct Curl_easy *data)
 {
-  cf_ctx_set_data(cf, data);
+  struct cf_call_data save;
+
+  CF_DATA_SAVE(save, cf, data);
   cf_close(cf, data);
+  CF_DATA_RESTORE(cf, save);
   cf_ctx_free(cf->ctx);
   cf->ctx = NULL;
 }
@@ -1466,10 +1487,12 @@ static void ssl_cf_destroy(struct Curl_cfilter *cf, struct Curl_easy *data)
 static void ssl_cf_close(struct Curl_cfilter *cf,
                          struct Curl_easy *data)
 {
-  cf_ctx_set_data(cf, data);
+  struct cf_call_data save;
+
+  CF_DATA_SAVE(save, cf, data);
   cf_close(cf, data);
   cf->next->cft->close(cf->next, data);
-  cf_ctx_set_data(cf, NULL);
+  CF_DATA_RESTORE(cf, save);
 }
 
 static CURLcode ssl_cf_connect(struct Curl_cfilter *cf,
@@ -1477,6 +1500,7 @@ static CURLcode ssl_cf_connect(struct Curl_cfilter *cf,
                                bool blocking, bool *done)
 {
   struct ssl_connect_data *connssl = cf->ctx;
+  struct cf_call_data save;
   CURLcode result;
 
   if(cf->connected) {
@@ -1484,7 +1508,7 @@ static CURLcode ssl_cf_connect(struct Curl_cfilter *cf,
     return CURLE_OK;
   }
 
-  cf_ctx_set_data(cf, data);
+  CF_DATA_SAVE(save, cf, data);
   (void)connssl;
   DEBUGASSERT(data->conn);
   DEBUGASSERT(data->conn == cf->conn);
@@ -1495,10 +1519,10 @@ static CURLcode ssl_cf_connect(struct Curl_cfilter *cf,
   if(result || !*done)
     goto out;
 
-  /* TODO: right now we do not fully control when hostname is set,
-   * assign it on each connect call. */
-  reinit_hostname(cf);
   *done = FALSE;
+  result = reinit_hostname(cf);
+  if(result)
+    goto out;
 
   if(blocking) {
     result = ssl_connect(cf, data);
@@ -1515,21 +1539,22 @@ static CURLcode ssl_cf_connect(struct Curl_cfilter *cf,
     DEBUGASSERT(connssl->state == ssl_connection_complete);
   }
 out:
-  cf_ctx_set_data(cf, NULL);
+  CF_DATA_RESTORE(cf, save);
   return result;
 }
 
 static bool ssl_cf_data_pending(struct Curl_cfilter *cf,
                                 const struct Curl_easy *data)
 {
+  struct cf_call_data save;
   bool result;
 
-  cf_ctx_set_data(cf, (struct Curl_easy *)data);
+  CF_DATA_SAVE(save, cf, data);
   if(cf->ctx && Curl_ssl->data_pending(cf, data))
     result = TRUE;
   else
     result = cf->next->cft->has_data_pending(cf->next, data);
-  cf_ctx_set_data(cf, NULL);
+  CF_DATA_RESTORE(cf, save);
   return result;
 }
 
@@ -1537,12 +1562,13 @@ static ssize_t ssl_cf_send(struct Curl_cfilter *cf,
                            struct Curl_easy *data, const void *buf, size_t len,
                            CURLcode *err)
 {
+  struct cf_call_data save;
   ssize_t nwritten;
 
+  CF_DATA_SAVE(save, cf, data);
   *err = CURLE_OK;
-  cf_ctx_set_data(cf, data);
   nwritten = Curl_ssl->send_plain(cf, data, buf, len, err);
-  cf_ctx_set_data(cf, NULL);
+  CF_DATA_RESTORE(cf, save);
   return nwritten;
 }
 
@@ -1550,12 +1576,13 @@ static ssize_t ssl_cf_recv(struct Curl_cfilter *cf,
                            struct Curl_easy *data, char *buf, size_t len,
                            CURLcode *err)
 {
+  struct cf_call_data save;
   ssize_t nread;
 
+  CF_DATA_SAVE(save, cf, data);
   *err = CURLE_OK;
-  cf_ctx_set_data(cf, data);
   nread = Curl_ssl->recv_plain(cf, data, buf, len, err);
-  cf_ctx_set_data(cf, NULL);
+  CF_DATA_RESTORE(cf, save);
   return nread;
 }
 
@@ -1563,11 +1590,12 @@ static int ssl_cf_get_select_socks(struct Curl_cfilter *cf,
                                    struct Curl_easy *data,
                                    curl_socket_t *socks)
 {
+  struct cf_call_data save;
   int result;
 
-  cf_ctx_set_data(cf, data);
+  CF_DATA_SAVE(save, cf, data);
   result = Curl_ssl->get_select_socks(cf, data, socks);
-  cf_ctx_set_data(cf, NULL);
+  CF_DATA_RESTORE(cf, save);
   return result;
 }
 
@@ -1575,21 +1603,23 @@ static CURLcode ssl_cf_cntrl(struct Curl_cfilter *cf,
                              struct Curl_easy *data,
                              int event, int arg1, void *arg2)
 {
+  struct cf_call_data save;
+
   (void)arg1;
   (void)arg2;
   switch(event) {
   case CF_CTRL_DATA_ATTACH:
     if(Curl_ssl->attach_data) {
-      cf_ctx_set_data(cf, data);
+      CF_DATA_SAVE(save, cf, data);
       Curl_ssl->attach_data(cf, data);
-      cf_ctx_set_data(cf, NULL);
+      CF_DATA_RESTORE(cf, save);
     }
     break;
   case CF_CTRL_DATA_DETACH:
     if(Curl_ssl->detach_data) {
-      cf_ctx_set_data(cf, data);
+      CF_DATA_SAVE(save, cf, data);
       Curl_ssl->detach_data(cf, data);
-      cf_ctx_set_data(cf, NULL);
+      CF_DATA_RESTORE(cf, save);
     }
     break;
   default:
@@ -1600,6 +1630,8 @@ static CURLcode ssl_cf_cntrl(struct Curl_cfilter *cf,
 
 static bool cf_ssl_is_alive(struct Curl_cfilter *cf, struct Curl_easy *data)
 {
+  struct cf_call_data save;
+  bool result;
   /*
    * This function tries to determine connection status.
    *
@@ -1608,12 +1640,16 @@ static bool cf_ssl_is_alive(struct Curl_cfilter *cf, struct Curl_easy *data)
    *     0 means the connection has been closed
    *    -1 means the connection status is unknown
    */
-  return Curl_ssl->check_cxn(cf, data) != 0;
+  CF_DATA_SAVE(save, cf, data);
+  result = Curl_ssl->check_cxn(cf, data) != 0;
+  CF_DATA_RESTORE(cf, save);
+  return result;
 }
 
-static const struct Curl_cftype cft_ssl = {
+struct Curl_cftype Curl_cft_ssl = {
   "SSL",
   CF_TYPE_SSL,
+  CURL_LOG_DEFAULT,
   ssl_cf_destroy,
   ssl_cf_connect,
   ssl_cf_close,
@@ -1628,9 +1664,10 @@ static const struct Curl_cftype cft_ssl = {
   Curl_cf_def_query,
 };
 
-static const struct Curl_cftype cft_ssl_proxy = {
+struct Curl_cftype Curl_cft_ssl_proxy = {
   "SSL-PROXY",
   CF_TYPE_SSL,
+  CURL_LOG_DEFAULT,
   ssl_cf_destroy,
   ssl_cf_connect,
   ssl_cf_close,
@@ -1659,7 +1696,7 @@ static CURLcode cf_ssl_create(struct Curl_cfilter **pcf,
     goto out;
   }
 
-  result = Curl_cf_create(&cf, &cft_ssl, ctx);
+  result = Curl_cf_create(&cf, &Curl_cft_ssl, ctx);
 
 out:
   if(result)
@@ -1707,7 +1744,7 @@ static CURLcode cf_ssl_proxy_create(struct Curl_cfilter **pcf,
     goto out;
   }
 
-  result = Curl_cf_create(&cf, &cft_ssl_proxy, ctx);
+  result = Curl_cf_create(&cf, &Curl_cft_ssl_proxy, ctx);
 
 out:
   if(result)
@@ -1759,9 +1796,10 @@ void *Curl_ssl_get_internals(struct Curl_easy *data, int sockindex,
     /* get first filter in chain, if any is present */
     cf = Curl_ssl_cf_get_ssl(data->conn->cfilter[sockindex]);
     if(cf) {
-      cf_ctx_set_data(cf, data);
+      struct cf_call_data save;
+      CF_DATA_SAVE(save, cf, data);
       result = Curl_ssl->get_internals(cf->ctx, info);
-      cf_ctx_set_data(cf, NULL);
+      CF_DATA_RESTORE(cf, save);
     }
   }
   return result;
@@ -1775,7 +1813,7 @@ CURLcode Curl_ssl_cfilter_remove(struct Curl_easy *data,
 
   (void)data;
   for(; cf; cf = cf->next) {
-    if(cf->cft == &cft_ssl) {
+    if(cf->cft == &Curl_cft_ssl) {
       if(Curl_ssl->shut_down(cf, data))
         result = CURLE_SSL_SHUTDOWN_FAILED;
       Curl_conn_cf_discard(cf, data);
@@ -1791,7 +1829,7 @@ static struct Curl_cfilter *get_ssl_cf_engaged(struct connectdata *conn,
   struct Curl_cfilter *cf, *lowest_ssl_cf = NULL;
 
   for(cf = conn->cfilter[sockindex]; cf; cf = cf->next) {
-    if(cf->cft == &cft_ssl || cf->cft == &cft_ssl_proxy) {
+    if(cf->cft == &Curl_cft_ssl || cf->cft == &Curl_cft_ssl_proxy) {
       lowest_ssl_cf = cf;
       if(cf->connected || (cf->next && cf->next->connected)) {
         /* connected or about to start */
@@ -1804,7 +1842,7 @@ static struct Curl_cfilter *get_ssl_cf_engaged(struct connectdata *conn,
 
 bool Curl_ssl_cf_is_proxy(struct Curl_cfilter *cf)
 {
-  return (cf->cft == &cft_ssl_proxy);
+  return (cf->cft == &Curl_cft_ssl_proxy);
 }
 
 struct ssl_config_data *
@@ -1856,7 +1894,7 @@ Curl_ssl_get_primary_config(struct Curl_easy *data,
 struct Curl_cfilter *Curl_ssl_cf_get_ssl(struct Curl_cfilter *cf)
 {
   for(; cf; cf = cf->next) {
-    if(cf->cft == &cft_ssl || cf->cft == &cft_ssl_proxy)
+    if(cf->cft == &Curl_cft_ssl || cf->cft == &Curl_cft_ssl_proxy)
       return cf;
   }
   return NULL;

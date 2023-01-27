@@ -2318,7 +2318,7 @@ static CURLcode parse_proxy(struct Curl_easy *data,
       result = CURLE_OUT_OF_MEMORY;
       goto error;
     }
-    /* path will be "/", if no path was was found */
+    /* path will be "/", if no path was found */
     if(strcmp("/", path)) {
       is_unix_proxy = TRUE;
       free(host);
@@ -2401,6 +2401,7 @@ static CURLcode create_conn_helper_init_proxy(struct Curl_easy *data,
   char *socksproxy = NULL;
   char *no_proxy = NULL;
   CURLcode result = CURLE_OK;
+  bool spacesep = FALSE;
 
   /*************************************************************
    * Extract the user and password from the authentication string
@@ -2447,7 +2448,8 @@ static CURLcode create_conn_helper_init_proxy(struct Curl_easy *data,
   }
 
   if(Curl_check_noproxy(conn->host.name, data->set.str[STRING_NOPROXY] ?
-                        data->set.str[STRING_NOPROXY] : no_proxy)) {
+                        data->set.str[STRING_NOPROXY] : no_proxy,
+                        &spacesep)) {
     Curl_safefree(proxy);
     Curl_safefree(socksproxy);
   }
@@ -2456,6 +2458,8 @@ static CURLcode create_conn_helper_init_proxy(struct Curl_easy *data,
     /* if the host is not in the noproxy list, detect proxy. */
     proxy = detect_proxy(data, conn);
 #endif /* CURL_DISABLE_HTTP */
+  if(spacesep)
+    infof(data, "space-separated NOPROXY patterns are deprecated");
 
   Curl_safefree(no_proxy);
 
@@ -3365,6 +3369,20 @@ static void reuse_conn(struct Curl_easy *data,
   }
 #endif
 
+  /* Finding a connection for reuse in the cache matches, among other
+   * things on the "remote-relevant" hostname. This is not necessarily
+   * the authority of the URL, e.g. conn->host. For example:
+   * - we use a proxy (not tunneling). we want to send all requests
+   *   that use the same proxy on this connection.
+   * - we have a "connect-to" setting that may redirect the hostname of
+   *   a new request to the same remote endpoint of an existing conn.
+   *   We want to reuse an existing conn to the remote endpoint.
+   * Since connection reuse does not match on conn->host necessarily, we
+   * switch `existing` conn to `temp` conn's host settings.
+   * TODO: is this correct in the case of TLS connections that have
+   *       used the original hostname in SNI to negotiate? Do we send
+   *       requests for another host through the different SNI?
+   */
   Curl_free_idnconverted_hostname(&existing->host);
   Curl_free_idnconverted_hostname(&existing->conn_to_host);
   Curl_safefree(existing->host.rawalloc);
@@ -3380,9 +3398,6 @@ static void reuse_conn(struct Curl_easy *data,
 
   existing->hostname_resolve = temp->hostname_resolve;
   temp->hostname_resolve = NULL;
-
-  /* persist existing connection info in data */
-  Curl_conn_ev_update_info(data, existing);
 
   conn_reset_all_postponed_data(temp); /* free buffers */
 
