@@ -1636,7 +1636,6 @@ static CURLcode sectransp_connect_step1(struct Curl_cfilter *cf,
   const bool verifypeer = conn_config->verifypeer;
   char * const ssl_cert = ssl_config->primary.clientcert;
   const struct curl_blob *ssl_cert_blob = ssl_config->primary.cert_blob;
-  bool isproxy = Curl_ssl_cf_is_proxy(cf);
 #ifdef ENABLE_IPV6
   struct in6_addr addr;
 #else
@@ -1797,38 +1796,28 @@ static CURLcode sectransp_connect_step1(struct Curl_cfilter *cf,
 #endif /* CURL_BUILD_MAC_10_8 || CURL_BUILD_IOS */
 
 #if (CURL_BUILD_MAC_10_13 || CURL_BUILD_IOS_11) && HAVE_BUILTIN_AVAILABLE == 1
-  if(cf->conn->bits.tls_enable_alpn) {
+  if(connssl->alpn) {
     if(__builtin_available(macOS 10.13.4, iOS 11, tvOS 11, *)) {
+      struct alpn_proto_buf proto;
+      size_t i;
+      CFStringRef cstr;
       CFMutableArrayRef alpnArr = CFArrayCreateMutable(NULL, 0,
                                                        &kCFTypeArrayCallBacks);
-
-      if(data->state.httpwant == CURL_HTTP_VERSION_1_0) {
-        CFArrayAppendValue(alpnArr, CFSTR(ALPN_HTTP_1_0));
-        infof(data, VTLS_INFOF_ALPN_OFFER_1STR, ALPN_HTTP_1_0);
+      for(i = 0; i < connssl->alpn->count; ++i) {
+        cstr = CFStringCreateWithCString(NULL, connssl->alpn->entries[i],
+                                         kCFStringEncodingUTF8);
+        if(!cstr)
+          return CURLE_OUT_OF_MEMORY;
+        CFArrayAppendValue(alpnArr, cstr);
+        CFRelease(cstr);
       }
-      else {
-#ifdef USE_HTTP2
-        if(data->state.httpwant >= CURL_HTTP_VERSION_2
-#ifndef CURL_DISABLE_PROXY
-           && (!isproxy || !cf->conn->bits.tunnel_proxy)
-#endif
-          ) {
-          CFArrayAppendValue(alpnArr, CFSTR(ALPN_H2));
-          infof(data, VTLS_INFOF_ALPN_OFFER_1STR, ALPN_H2);
-        }
-#endif
-
-        CFArrayAppendValue(alpnArr, CFSTR(ALPN_HTTP_1_1));
-        infof(data, VTLS_INFOF_ALPN_OFFER_1STR, ALPN_HTTP_1_1);
-      }
-      /* expects length prefixed preference ordered list of protocols in wire
-       * format
-       */
       err = SSLSetALPNProtocols(backend->ssl_ctx, alpnArr);
       if(err != noErr)
         infof(data, "WARNING: failed to set ALPN protocols; OSStatus %d",
               err);
       CFRelease(alpnArr);
+      Curl_alpn_to_proto_str(&proto, connssl->alpn);
+      infof(data, VTLS_INFOF_ALPN_OFFER_1STR, proto.data);
     }
   }
 #endif
@@ -2161,50 +2150,39 @@ static long pem_to_der(const char *in, unsigned char **out, size_t *outlen)
   return sep_end - in;
 }
 
+#define MAX_CERTS_SIZE (50*1024*1024) /* arbitrary - to catch mistakes */
+
 static int read_cert(const char *file, unsigned char **out, size_t *outlen)
 {
   int fd;
-  ssize_t n, len = 0, cap = 512;
-  unsigned char buf[512], *data;
+  ssize_t n;
+  unsigned char buf[512];
+  struct dynbuf certs;
+
+  Curl_dyn_init(&certs, MAX_CERTS_SIZE);
 
   fd = open(file, 0);
   if(fd < 0)
     return -1;
 
-  data = malloc(cap);
-  if(!data) {
-    close(fd);
-    return -1;
-  }
-
   for(;;) {
     n = read(fd, buf, sizeof(buf));
+    if(!n)
+      break;
     if(n < 0) {
       close(fd);
-      free(data);
+      Curl_dyn_free(&certs);
       return -1;
     }
-    else if(n == 0) {
+    if(Curl_dyn_addn(&certs, buf, n)) {
       close(fd);
-      break;
+      return -1;
     }
-
-    if(len + n >= cap) {
-      cap *= 2;
-      data = Curl_saferealloc(data, cap);
-      if(!data) {
-        close(fd);
-        return -1;
-      }
-    }
-
-    memcpy(data + len, buf, n);
-    len += n;
   }
-  data[len] = '\0';
+  close(fd);
 
-  *out = data;
-  *outlen = len;
+  *out = Curl_dyn_uptr(&certs);
+  *outlen = Curl_dyn_len(&certs);
 
   return 0;
 }
@@ -2213,16 +2191,18 @@ static int append_cert_to_array(struct Curl_easy *data,
                                 const unsigned char *buf, size_t buflen,
                                 CFMutableArrayRef array)
 {
-    CFDataRef certdata = CFDataCreate(kCFAllocatorDefault, buf, buflen);
     char *certp;
     CURLcode result;
+    SecCertificateRef cacert;
+    CFDataRef certdata;
+
+    certdata = CFDataCreate(kCFAllocatorDefault, buf, buflen);
     if(!certdata) {
       failf(data, "SSL: failed to allocate array for CA certificate");
       return CURLE_OUT_OF_MEMORY;
     }
 
-    SecCertificateRef cacert =
-      SecCertificateCreateWithData(kCFAllocatorDefault, certdata);
+    cacert = SecCertificateCreateWithData(kCFAllocatorDefault, certdata);
     CFRelease(certdata);
     if(!cacert) {
       failf(data, "SSL: failed to create SecCertificate from CA certificate");
@@ -2436,11 +2416,15 @@ static CURLcode pkp_pin_peer_pubkey(struct Curl_easy *data,
 
   do {
     SecTrustRef trust;
-    OSStatus ret = SSLCopyPeerTrust(ctx, &trust);
+    OSStatus ret;
+    SecKeyRef keyRef;
+    OSStatus success;
+
+    ret = SSLCopyPeerTrust(ctx, &trust);
     if(ret != noErr || !trust)
       break;
 
-    SecKeyRef keyRef = SecTrustCopyPublicKey(trust);
+    keyRef = SecTrustCopyPublicKey(trust);
     CFRelease(trust);
     if(!keyRef)
       break;
@@ -2454,8 +2438,8 @@ static CURLcode pkp_pin_peer_pubkey(struct Curl_easy *data,
 
 #elif SECTRANSP_PINNEDPUBKEY_V2
 
-    OSStatus success = SecItemExport(keyRef, kSecFormatOpenSSL, 0, NULL,
-                                     &publicKeyBits);
+    success = SecItemExport(keyRef, kSecFormatOpenSSL, 0, NULL,
+                            &publicKeyBits);
     CFRelease(keyRef);
     if(success != errSecSuccess || !publicKeyBits)
       break;
@@ -2998,12 +2982,13 @@ static CURLcode sectransp_connect_step3(struct Curl_cfilter *cf,
                                         struct Curl_easy *data)
 {
   struct ssl_connect_data *connssl = cf->ctx;
+  CURLcode result;
 
   DEBUGF(LOG_CF(data, cf, "connect_step3"));
   /* There is no step 3!
    * Well, okay, let's collect server certificates, and if verbose mode is on,
    * let's print the details of the server certificates. */
-  const CURLcode result = collect_server_cert(cf, data);
+  result = collect_server_cert(cf, data);
   if(result)
     return result;
 
@@ -3018,7 +3003,7 @@ sectransp_connect_common(struct Curl_cfilter *cf, struct Curl_easy *data,
 {
   CURLcode result;
   struct ssl_connect_data *connssl = cf->ctx;
-  curl_socket_t sockfd = cf->conn->sock[cf->sockindex];
+  curl_socket_t sockfd = Curl_conn_cf_get_socket(cf, data);
   int what;
 
   /* check if the connection has already been established */
@@ -3196,7 +3181,8 @@ static int sectransp_shutdown(struct Curl_cfilter *cf,
 
   rc = 0;
 
-  what = SOCKET_READABLE(cf->conn->sock[cf->sockindex], SSL_SHUTDOWN_TIMEOUT);
+  what = SOCKET_READABLE(Curl_conn_cf_get_socket(cf, data),
+                         SSL_SHUTDOWN_TIMEOUT);
 
   DEBUGF(LOG_CF(data, cf, "shutdown"));
   while(loop--) {
@@ -3225,7 +3211,7 @@ static int sectransp_shutdown(struct Curl_cfilter *cf,
     if(nread <= 0)
       break;
 
-    what = SOCKET_READABLE(cf->conn->sock[cf->sockindex], 0);
+    what = SOCKET_READABLE(Curl_conn_cf_get_socket(cf, data), 0);
   }
 
   return rc;
@@ -3245,35 +3231,6 @@ static void sectransp_session_free(void *ptr)
 static size_t sectransp_version(char *buffer, size_t size)
 {
   return msnprintf(buffer, size, "SecureTransport");
-}
-
-/*
- * This function uses SSLGetSessionState to determine connection status.
- *
- * Return codes:
- *     1 means the connection is still in place
- *     0 means the connection has been closed
- *    -1 means the connection status is unknown
- */
-static int sectransp_check_cxn(struct Curl_cfilter *cf,
-                               struct Curl_easy *data)
-{
-  struct ssl_connect_data *connssl = cf->ctx;
-  struct ssl_backend_data *backend = connssl->backend;
-  OSStatus err;
-  SSLSessionState state;
-
-  (void)data;
-  DEBUGASSERT(backend);
-
-  if(backend->ssl_ctx) {
-    DEBUGF(LOG_CF(data, cf, "check connection"));
-    err = SSLGetSessionState(backend->ssl_ctx, &state);
-    if(err == noErr)
-      return state == kSSLConnected || state == kSSLHandshake;
-    return -1;
-  }
-  return 0;
 }
 
 static bool sectransp_data_pending(struct Curl_cfilter *cf,
@@ -3487,7 +3444,7 @@ const struct Curl_ssl Curl_ssl_sectransp = {
   Curl_none_init,                     /* init */
   Curl_none_cleanup,                  /* cleanup */
   sectransp_version,                  /* version */
-  sectransp_check_cxn,                /* check_cxn */
+  Curl_none_check_cxn,                /* check_cxn */
   sectransp_shutdown,                 /* shutdown */
   sectransp_data_pending,             /* data_pending */
   sectransp_random,                   /* random */

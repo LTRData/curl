@@ -70,13 +70,6 @@ CURLcode Curl_socket_open(struct Curl_easy *data,
 int Curl_socket_close(struct Curl_easy *data, struct connectdata *conn,
                       curl_socket_t sock);
 
-/*
- * This function should return TRUE if the socket is to be assumed to
- * be dead. Most commonly this happens when the server has closed the
- * connection due to inactivity.
- */
-bool Curl_socket_is_dead(curl_socket_t sock);
-
 /**
  * Determine the curl code for a socket connect() == -1 with errno.
  */
@@ -116,7 +109,8 @@ void Curl_sock_assign_addr(struct Curl_sockaddr_ex *dest,
 CURLcode Curl_cf_tcp_create(struct Curl_cfilter **pcf,
                             struct Curl_easy *data,
                             struct connectdata *conn,
-                            const struct Curl_addrinfo *ai);
+                            const struct Curl_addrinfo *ai,
+                            int transport);
 
 /**
  * Creates a cfilter that opens a UDP socket to the given address
@@ -128,7 +122,8 @@ CURLcode Curl_cf_tcp_create(struct Curl_cfilter **pcf,
 CURLcode Curl_cf_udp_create(struct Curl_cfilter **pcf,
                             struct Curl_easy *data,
                             struct connectdata *conn,
-                            const struct Curl_addrinfo *ai);
+                            const struct Curl_addrinfo *ai,
+                            int transport);
 
 /**
  * Creates a cfilter that opens a UNIX socket to the given address
@@ -140,7 +135,8 @@ CURLcode Curl_cf_udp_create(struct Curl_cfilter **pcf,
 CURLcode Curl_cf_unix_create(struct Curl_cfilter **pcf,
                              struct Curl_easy *data,
                              struct connectdata *conn,
-                             const struct Curl_addrinfo *ai);
+                             const struct Curl_addrinfo *ai,
+                             int transport);
 
 /**
  * Creates a cfilter that keeps a listening socket.
@@ -168,15 +164,18 @@ bool Curl_cf_is_socket(struct Curl_cfilter *cf);
  * The filter owns all returned values.
  * @param psock             pointer to hold socket descriptor or NULL
  * @param paddr             pointer to hold addr reference or NULL
- * @param premote_ip_str    pointer to hold remote addr as string or NULL
- * @param premote_port      pointer to hold remote port number or NULL
+ * @param pr_ip_str         pointer to hold remote addr as string or NULL
+ * @param pr_port           pointer to hold remote port number or NULL
+ * @param pl_ip_str         pointer to hold local addr as string or NULL
+ * @param pl_port           pointer to hold local port number or NULL
  * Returns error if the filter is of invalid type.
  */
 CURLcode Curl_cf_socket_peek(struct Curl_cfilter *cf,
+                             struct Curl_easy *data,
                              curl_socket_t *psock,
                              const struct Curl_sockaddr_ex **paddr,
-                             const char **premote_ip_str,
-                             int *premote_port);
+                             const char **pr_ip_str, int *pr_port,
+                             const char **pl_ip_str, int *pl_port);
 
 extern struct Curl_cftype Curl_cft_tcp;
 extern struct Curl_cftype Curl_cft_udp;

@@ -873,11 +873,11 @@ static void HandshakeCallback(PRFileDesc *sock, void *arg)
 #endif
     case SSL_NEXT_PROTO_NO_SUPPORT:
     case SSL_NEXT_PROTO_NO_OVERLAP:
-      infof(data, VTLS_INFOF_NO_ALPN);
+      Curl_alpn_set_negotiated(cf, data, NULL, 0);
       return;
 #ifdef SSL_ENABLE_ALPN
     case SSL_NEXT_PROTO_SELECTED:
-      infof(data, VTLS_INFOF_ALPN_ACCEPTED_LEN_1STR, buflen, buf);
+      Curl_alpn_set_negotiated(cf, data, buf, buflen);
       break;
 #endif
     default:
@@ -885,29 +885,6 @@ static void HandshakeCallback(PRFileDesc *sock, void *arg)
       break;
     }
 
-#ifdef USE_HTTP2
-    if(buflen == ALPN_H2_LENGTH &&
-       !memcmp(ALPN_H2, buf, ALPN_H2_LENGTH)) {
-      cf->conn->alpn = CURL_HTTP_VERSION_2;
-    }
-    else
-#endif
-    if(buflen == ALPN_HTTP_1_1_LENGTH &&
-       !memcmp(ALPN_HTTP_1_1, buf, ALPN_HTTP_1_1_LENGTH)) {
-      cf->conn->alpn = CURL_HTTP_VERSION_1_1;
-    }
-    else if(buflen == ALPN_HTTP_1_0_LENGTH &&
-            !memcmp(ALPN_HTTP_1_0, buf, ALPN_HTTP_1_0_LENGTH)) {
-      cf->conn->alpn = CURL_HTTP_VERSION_1_0;
-    }
-
-    /* This callback might get called when PR_Recv() is used within
-     * close_one() during a connection shutdown. At that point there might not
-     * be any "bundle" associated with the connection anymore.
-     */
-    if(conn->bundle)
-      Curl_multiuse_state(data, cf->conn->alpn == CURL_HTTP_VERSION_2 ?
-                          BUNDLE_MULTIPLEX : BUNDLE_NO_MULTIUSE);
   }
 }
 
@@ -1559,36 +1536,6 @@ static void nss_cleanup(void)
   initialized = 0;
 }
 
-/*
- * This function uses SSL_peek to determine connection status.
- *
- * Return codes:
- *     1 means the connection is still in place
- *     0 means the connection has been closed
- *    -1 means the connection status is unknown
- */
-static int nss_check_cxn(struct Curl_cfilter *cf, struct Curl_easy *data)
-{
-  struct ssl_connect_data *connssl = cf->ctx;
-  struct ssl_backend_data *backend = connssl->backend;
-  int rc;
-  char buf;
-
-  (void)data;
-  DEBUGASSERT(backend);
-
-  rc =
-    PR_Recv(backend->handle, (void *)&buf, 1, PR_MSG_PEEK,
-            PR_SecondsToInterval(1));
-  if(rc > 0)
-    return 1; /* connection still in place */
-
-  if(rc == 0)
-    return 0; /* connection has been closed */
-
-  return -1;  /* connection status unknown */
-}
-
 static void close_one(struct ssl_connect_data *connssl)
 {
   /* before the cleanup, check whether we are using a client certificate */
@@ -1901,7 +1848,7 @@ static CURLcode nss_setup_connect(struct Curl_cfilter *cf,
   PRFileDesc *nspr_io_stub = NULL;
   PRBool ssl_no_cache;
   PRBool ssl_cbc_random_iv;
-  curl_socket_t sockfd = cf->conn->sock[cf->sockindex];
+  curl_socket_t sockfd = Curl_conn_cf_get_socket(cf, data);
   struct ssl_connect_data *connssl = cf->ctx;
   struct ssl_backend_data *backend = connssl->backend;
   struct ssl_primary_config *conn_config = Curl_ssl_cf_get_primary_config(cf);
@@ -2167,34 +2114,17 @@ static CURLcode nss_setup_connect(struct Curl_cfilter *cf,
 #endif
 
 #if defined(SSL_ENABLE_ALPN)
-  if(cf->conn->bits.tls_enable_alpn) {
-    int cur = 0;
-    unsigned char protocols[128];
+  if(connssl->alpn) {
+    struct alpn_proto_buf proto;
 
-    if(data->state.httpwant == CURL_HTTP_VERSION_1_0) {
-      protocols[cur++] = ALPN_HTTP_1_0_LENGTH;
-      memcpy(&protocols[cur], ALPN_HTTP_1_0, ALPN_HTTP_1_0_LENGTH);
-      cur += ALPN_HTTP_1_0_LENGTH;
-    }
-    else {
-#ifdef USE_HTTP2
-      if(data->state.httpwant >= CURL_HTTP_VERSION_2
-#ifndef CURL_DISABLE_PROXY
-         && (!Curl_ssl_cf_is_proxy(cf) || !cf->conn->bits.tunnel_proxy)
-#endif
-        ) {
-        protocols[cur++] = ALPN_H2_LENGTH;
-        memcpy(&protocols[cur], ALPN_H2, ALPN_H2_LENGTH);
-        cur += ALPN_H2_LENGTH;
-      }
-#endif
-      protocols[cur++] = ALPN_HTTP_1_1_LENGTH;
-      memcpy(&protocols[cur], ALPN_HTTP_1_1, ALPN_HTTP_1_1_LENGTH);
-      cur += ALPN_HTTP_1_1_LENGTH;
-    }
-
-    if(SSL_SetNextProtoNego(backend->handle, protocols, cur) != SECSuccess)
+    result = Curl_alpn_to_proto_buf(&proto, connssl->alpn);
+    if(result || SSL_SetNextProtoNego(backend->handle, proto.data, proto.len)
+                   != SECSuccess) {
+      failf(data, "Error setting ALPN");
       goto error;
+    }
+    Curl_alpn_to_proto_str(&proto, connssl->alpn);
+    infof(data, VTLS_INFOF_ALPN_OFFER_1STR, proto.data);
   }
 #endif
 
@@ -2564,7 +2494,7 @@ const struct Curl_ssl Curl_ssl_nss = {
   nss_init,                     /* init */
   nss_cleanup,                  /* cleanup */
   nss_version,                  /* version */
-  nss_check_cxn,                /* check_cxn */
+  Curl_none_check_cxn,          /* check_cxn */
   /* NSS has no shutdown function provided and thus always fail */
   Curl_none_shutdown,           /* shutdown */
   nss_data_pending,             /* data_pending */
