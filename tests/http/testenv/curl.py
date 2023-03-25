@@ -7,7 +7,7 @@
 #                            | (__| |_| |  _ <| |___
 #                             \___|\___/|_| \_\_____|
 #
-# Copyright (C) 2008 - 2022, Daniel Stenberg, <daniel@haxx.se>, et al.
+# Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 #
 # This software is licensed as described in the file COPYING, which
 # you should have received as part of this distribution. The terms
@@ -235,12 +235,18 @@ class CurlClient:
                       alpn_proto: Optional[str] = None,
                       with_stats: bool = True,
                       with_headers: bool = False,
+                      no_save: bool = False,
                       extra_args: List[str] = None):
         if extra_args is None:
             extra_args = []
-        extra_args.extend([
-            '-o', 'download_#1.data',
-        ])
+        if no_save:
+            extra_args.extend([
+                '-o', '/dev/null',
+            ])
+        else:
+            extra_args.extend([
+                '-o', 'download_#1.data',
+            ])
         # remove any existing ones
         for i in range(100):
             self._rmf(self.download_file(i))

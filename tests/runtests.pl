@@ -5898,6 +5898,7 @@ Usage: runtests.pl [options] [test selection(s)]
   -L path  require an additional perl library file to replace certain functions
   -l       list all test case names/descriptions
   -n       no valgrind
+  --no-debuginfod disable the valgrind debuginfod functionality
   -o variable=value set internal variable to the specified value
   -P proxy use the specified proxy
   -p       print log file contents when a test fails
@@ -5969,7 +5970,8 @@ if(!$randseed) {
         localtime(time);
     # seed of the month. December 2019 becomes 201912
     $randseed = ($year+1900)*100 + $mon+1;
-    open(C, "$CURL --version 2>/dev/null|");
+    open(C, "$CURL --version 2>/dev/null|") ||
+        die "could not get curl version!";
     my @c = <C>;
     close(C);
     # use the first line of output and get the md5 out of it
