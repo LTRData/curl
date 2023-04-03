@@ -63,6 +63,8 @@ class EnvConfig:
         self.config = DEF_CONFIG
         # check cur and its features
         self.curl = CURL
+        if 'CURL' in os.environ:
+            self.curl = os.environ['CURL']
         self.curl_props = {
             'version': None,
             'os': None,
@@ -238,6 +240,11 @@ class Env:
         return feature.lower() in Env.CONFIG.curl_props['features']
 
     @staticmethod
+    def curl_has_protocol(protocol: str) -> bool:
+        return protocol.lower() in Env.CONFIG.curl_props['protocols']
+
+
+    @staticmethod
     def curl_lib_version(libname: str) -> str:
         prefix = f'{libname.lower()}/'
         for lversion in Env.CONFIG.curl_props['lib_versions']:
@@ -281,7 +288,7 @@ class Env:
         self._verbose = pytestconfig.option.verbose \
             if pytestconfig is not None else 0
         self._ca = None
-        self._test_timeout = 60.0  # seconds
+        self._test_timeout = 300.0 if self._verbose > 1 else 60.0  # seconds
 
     def issue_certs(self):
         if self._ca is None:
