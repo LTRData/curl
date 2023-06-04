@@ -35,7 +35,7 @@
 #include "cf-socket.h"
 #include "connect.h"
 #include "progress.h"
-#include "h2h3.h"
+#include "http1.h"
 #include "curl_msh3.h"
 #include "socketpair.h"
 #include "vquic/vquic.h"
@@ -148,9 +148,9 @@ struct stream_ctx {
 };
 
 #define H3_STREAM_CTX(d)    ((struct stream_ctx *)(((d) && (d)->req.p.http)? \
-                             ((struct HTTP *)(d)->req.p.http)->impl_ctx \
+                             ((struct HTTP *)(d)->req.p.http)->h3_ctx \
                                : NULL))
-#define H3_STREAM_LCTX(d)   ((struct HTTP *)(d)->req.p.http)->impl_ctx
+#define H3_STREAM_LCTX(d)   ((struct HTTP *)(d)->req.p.http)->h3_ctx
 #define H3_STREAM_ID(d)     (H3_STREAM_CTX(d)? \
                              H3_STREAM_CTX(d)->id : -2)
 
@@ -189,12 +189,33 @@ static void h3_data_done(struct Curl_cfilter *cf, struct Curl_easy *data)
   }
 }
 
-static void notify_drain(struct Curl_cfilter *cf,
+static void drain_stream_from_other_thread(struct Curl_easy *data,
+                                           struct stream_ctx *stream)
+{
+  unsigned char bits;
+
+  /* risky */
+  bits = CURL_CSELECT_IN;
+  if(stream && !stream->upload_done)
+    bits |= CURL_CSELECT_OUT;
+  if(data->state.dselect_bits != bits) {
+    data->state.dselect_bits = bits;
+    /* cannot expire from other thread */
+  }
+}
+
+static void drain_stream(struct Curl_cfilter *cf,
                          struct Curl_easy *data)
 {
+  struct stream_ctx *stream = H3_STREAM_CTX(data);
+  unsigned char bits;
+
   (void)cf;
-  if(!data->state.drain) {
-    data->state.drain = 1;
+  bits = CURL_CSELECT_IN;
+  if(stream && !stream->upload_done)
+    bits |= CURL_CSELECT_OUT;
+  if(data->state.dselect_bits != bits) {
+    data->state.dselect_bits = bits;
     Curl_expire(data, 0, EXPIRE_RUN_NOW);
   }
 }
@@ -288,6 +309,9 @@ static CURLcode write_resp_raw(struct Curl_easy *data,
   CURLcode result = CURLE_OK;
   ssize_t nwritten;
 
+  if(!stream)
+    return CURLE_RECV_ERROR;
+
   nwritten = Curl_bufq_write(&stream->recvbuf, mem, memlen, &result);
   if(nwritten < 0) {
     return result;
@@ -311,14 +335,14 @@ static void MSH3_CALL msh3_header_received(MSH3_REQUEST *Request,
   CURLcode result;
   (void)Request;
 
-  if(stream->recv_header_complete) {
+  if(!stream || stream->recv_header_complete) {
     return;
   }
 
   msh3_lock_acquire(&stream->recv_lock);
 
   if((hd->NameLength == 7) &&
-     !strncmp(H2H3_PSEUDO_STATUS, (char *)hd->Name, 7)) {
+     !strncmp(HTTP_PSEUDO_STATUS, (char *)hd->Name, 7)) {
     char line[14]; /* status line is always 13 characters long */
     size_t ncopy;
 
@@ -347,7 +371,7 @@ static void MSH3_CALL msh3_header_received(MSH3_REQUEST *Request,
     }
   }
 
-  data->state.drain = 1;
+  drain_stream_from_other_thread(data, stream);
   msh3_lock_release(&stream->recv_lock);
 }
 
@@ -366,6 +390,9 @@ static bool MSH3_CALL msh3_data_received(MSH3_REQUEST *Request,
    * length (buflen is an inout parameter).
    */
   (void)Request;
+  if(!stream)
+    return FALSE;
+
   msh3_lock_acquire(&stream->recv_lock);
 
   if(!stream->recv_header_complete) {
@@ -395,6 +422,8 @@ static void MSH3_CALL msh3_complete(MSH3_REQUEST *Request, void *IfContext,
   struct stream_ctx *stream = H3_STREAM_CTX(data);
 
   (void)Request;
+  if(!stream)
+    return;
   msh3_lock_acquire(&stream->recv_lock);
   stream->closed = TRUE;
   stream->recv_header_complete = true;
@@ -410,6 +439,9 @@ static void MSH3_CALL msh3_shutdown_complete(MSH3_REQUEST *Request,
 {
   struct Curl_easy *data = IfContext;
   struct stream_ctx *stream = H3_STREAM_CTX(data);
+
+  if(!stream)
+    return;
   (void)Request;
   (void)stream;
 }
@@ -419,6 +451,8 @@ static void MSH3_CALL msh3_data_sent(MSH3_REQUEST *Request,
 {
   struct Curl_easy *data = IfContext;
   struct stream_ctx *stream = H3_STREAM_CTX(data);
+  if(!stream)
+    return;
   (void)Request;
   (void)stream;
   (void)SendContext;
@@ -431,6 +465,10 @@ static ssize_t recv_closed_stream(struct Curl_cfilter *cf,
   struct stream_ctx *stream = H3_STREAM_CTX(data);
   ssize_t nread = -1;
 
+  if(!stream) {
+    *err = CURLE_RECV_ERROR;
+    return -1;
+  }
   (void)cf;
   if(stream->reset) {
     failf(data, "HTTP/3 stream reset by server");
@@ -452,7 +490,6 @@ static ssize_t recv_closed_stream(struct Curl_cfilter *cf,
   nread = 0;
 
 out:
-  data->state.drain = 0;
   return nread;
 }
 
@@ -480,6 +517,10 @@ static ssize_t cf_msh3_recv(struct Curl_cfilter *cf, struct Curl_easy *data,
   struct cf_call_data save;
 
   (void)cf;
+  if(!stream) {
+    *err = CURLE_RECV_ERROR;
+    return -1;
+  }
   CF_DATA_SAVE(save, cf, data);
   DEBUGF(LOG_CF(data, cf, "req: recv with %zu byte buffer", len));
 
@@ -487,7 +528,6 @@ static ssize_t cf_msh3_recv(struct Curl_cfilter *cf, struct Curl_easy *data,
 
   if(stream->recv_error) {
     failf(data, "request aborted");
-    data->state.drain = 0;
     *err = stream->recv_error;
     goto out;
   }
@@ -501,10 +541,8 @@ static ssize_t cf_msh3_recv(struct Curl_cfilter *cf, struct Curl_easy *data,
                   len, nread, *err));
     if(nread < 0)
       goto out;
-    if(!Curl_bufq_is_empty(&stream->recvbuf) ||
-       stream->closed) {
-       notify_drain(cf, data);
-    }
+    if(stream->closed)
+      drain_stream(cf, data);
   }
   else if(stream->closed) {
     nread = recv_closed_stream(cf, data, err);
@@ -527,35 +565,75 @@ static ssize_t cf_msh3_send(struct Curl_cfilter *cf, struct Curl_easy *data,
 {
   struct cf_msh3_ctx *ctx = cf->ctx;
   struct stream_ctx *stream = H3_STREAM_CTX(data);
-  struct h2h3req *hreq;
-  size_t hdrlen = 0;
+  struct h1_req_parser h1;
+  struct dynhds h2_headers;
+  MSH3_HEADER *nva = NULL;
+  size_t nheader, i;
   ssize_t nwritten = -1;
   struct cf_call_data save;
+  bool eos;
 
   CF_DATA_SAVE(save, cf, data);
 
+  Curl_h1_req_parse_init(&h1, H1_PARSE_DEFAULT_MAX_LINE_LEN);
+  Curl_dynhds_init(&h2_headers, 0, DYN_HTTP_REQUEST);
+
   /* Sizes must match for cast below to work" */
-  DEBUGASSERT(sizeof(MSH3_HEADER) == sizeof(struct h2h3pseudo));
+  DEBUGASSERT(stream);
   DEBUGF(LOG_CF(data, cf, "req: send %zu bytes", len));
 
   if(!stream->req) {
     /* The first send on the request contains the headers and possibly some
        data. Parse out the headers and create the request, then if there is
        any data left over go ahead and send it too. */
+    nwritten = Curl_h1_req_parse_read(&h1, buf, len, NULL, 0, err);
+    if(nwritten < 0)
+      goto out;
+    DEBUGASSERT(h1.done);
+    DEBUGASSERT(h1.req);
 
-    *err = Curl_pseudo_headers(data, buf, len, &hdrlen, &hreq);
+    *err = Curl_http_req_to_h2(&h2_headers, h1.req, data);
     if(*err) {
-      failf(data, "Curl_pseudo_headers failed");
-      *err = CURLE_SEND_ERROR;
+      nwritten = -1;
       goto out;
     }
 
-    DEBUGF(LOG_CF(data, cf, "req: send %zu headers", hreq->entries));
+    nheader = Curl_dynhds_count(&h2_headers);
+    nva = malloc(sizeof(MSH3_HEADER) * nheader);
+    if(!nva) {
+      *err = CURLE_OUT_OF_MEMORY;
+      nwritten = -1;
+      goto out;
+    }
+
+    for(i = 0; i < nheader; ++i) {
+      struct dynhds_entry *e = Curl_dynhds_getn(&h2_headers, i);
+      nva[i].Name = e->name;
+      nva[i].NameLength = e->namelen;
+      nva[i].Value = e->value;
+      nva[i].ValueLength = e->valuelen;
+    }
+
+    switch(data->state.httpreq) {
+    case HTTPREQ_POST:
+    case HTTPREQ_POST_FORM:
+    case HTTPREQ_POST_MIME:
+    case HTTPREQ_PUT:
+      /* known request body size or -1 */
+      eos = FALSE;
+      break;
+    default:
+      /* there is not request body */
+      eos = TRUE;
+      stream->upload_done = TRUE;
+      break;
+    }
+
+    DEBUGF(LOG_CF(data, cf, "req: send %zu headers", nheader));
     stream->req = MsH3RequestOpen(ctx->qconn, &msh3_request_if, data,
-                                  (MSH3_HEADER*)hreq->header, hreq->entries,
-                                  hdrlen == len ? MSH3_REQUEST_FLAG_FIN :
+                                  nva, nheader,
+                                  eos ? MSH3_REQUEST_FLAG_FIN :
                                   MSH3_REQUEST_FLAG_NONE);
-    Curl_pseudo_free(hreq);
     if(!stream->req) {
       failf(data, "request open failed");
       *err = CURLE_SEND_ERROR;
@@ -586,6 +664,9 @@ static ssize_t cf_msh3_send(struct Curl_cfilter *cf, struct Curl_easy *data,
 
 out:
   set_quic_expire(cf, data);
+  free(nva);
+  Curl_h1_req_parse_free(&h1);
+  Curl_dynhds_free(&h2_headers);
   CF_DATA_RESTORE(cf, save);
   return nwritten;
 }
@@ -605,15 +686,14 @@ static int cf_msh3_get_select_socks(struct Curl_cfilter *cf,
 
     if(stream->recv_error) {
       bitmap |= GETSOCK_READSOCK(0);
-      notify_drain(cf, data);
+      drain_stream(cf, data);
     }
     else if(stream->req) {
       bitmap |= GETSOCK_READSOCK(0);
-      notify_drain(cf, data);
+      drain_stream(cf, data);
     }
   }
-  DEBUGF(LOG_CF(data, cf, "select_sock %u -> %d",
-                (uint32_t)data->state.drain, bitmap));
+  DEBUGF(LOG_CF(data, cf, "select_sock -> %d", bitmap));
   CF_DATA_RESTORE(cf, save);
   return bitmap;
 }
@@ -628,12 +708,14 @@ static bool cf_msh3_data_pending(struct Curl_cfilter *cf,
   CF_DATA_SAVE(save, cf, data);
 
   (void)cf;
-  if(stream->req) {
+  if(stream && stream->req) {
     msh3_lock_acquire(&stream->recv_lock);
     DEBUGF(LOG_CF((struct Curl_easy *)data, cf, "data pending = %zu",
                   Curl_bufq_len(&stream->recvbuf)));
     pending = !Curl_bufq_is_empty(&stream->recvbuf);
     msh3_lock_release(&stream->recv_lock);
+    if(pending)
+      drain_stream(cf, (struct Curl_easy *)data);
   }
 
   CF_DATA_RESTORE(cf, save);
@@ -657,6 +739,17 @@ static void cf_msh3_active(struct Curl_cfilter *cf, struct Curl_easy *data)
   ctx->active = TRUE;
 }
 
+static CURLcode h3_data_pause(struct Curl_cfilter *cf,
+                              struct Curl_easy *data,
+                              bool pause)
+{
+  if(!pause) {
+    drain_stream(cf, data);
+    Curl_expire(data, 0, EXPIRE_RUN_NOW);
+  }
+  return CURLE_OK;
+}
+
 static CURLcode cf_msh3_data_event(struct Curl_cfilter *cf,
                                    struct Curl_easy *data,
                                    int event, int arg1, void *arg2)
@@ -673,16 +766,22 @@ static CURLcode cf_msh3_data_event(struct Curl_cfilter *cf,
   case CF_CTRL_DATA_SETUP:
     result = h3_data_setup(cf, data);
     break;
+  case CF_CTRL_DATA_PAUSE:
+    result = h3_data_pause(cf, data, (arg1 != 0));
+    break;
   case CF_CTRL_DATA_DONE:
     h3_data_done(cf, data);
     break;
   case CF_CTRL_DATA_DONE_SEND:
     DEBUGF(LOG_CF(data, cf, "req: send done"));
-    stream->upload_done = TRUE;
-    if(stream && stream->req) {
-      char buf[1];
-      if(!MsH3RequestSend(stream->req, MSH3_REQUEST_FLAG_FIN, buf, 0, data)) {
-        result = CURLE_SEND_ERROR;
+    if(stream) {
+      stream->upload_done = TRUE;
+      if(stream->req) {
+        char buf[1];
+        if(!MsH3RequestSend(stream->req, MSH3_REQUEST_FLAG_FIN,
+                            buf, 0, data)) {
+          result = CURLE_SEND_ERROR;
+        }
       }
     }
     break;

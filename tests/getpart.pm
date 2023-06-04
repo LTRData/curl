@@ -22,8 +22,27 @@
 #
 ###########################################################################
 
+package getpart;
+
 use strict;
 use warnings;
+
+BEGIN {
+    use base qw(Exporter);
+
+    our @EXPORT = qw(
+        compareparts
+        fulltest
+        getpart
+        getpartattr
+        loadarray
+        loadtest
+        partexists
+        striparray
+        writearray
+    );
+}
+
 use Memoize;
 use MIME::Base64;
 
@@ -209,13 +228,13 @@ sub partexists {
 # caching a result that will never be used again just slows things down.
 # memoize('partexists', NORMALIZER => 'normalize_part');  # cache each result
 
-# Return entire document as list of lines
-sub getall {
-    return @xml;
-}
-
 sub loadtest {
     my ($file)=@_;
+
+    if(defined $xmlfile && $file eq $xmlfile) {
+        # This test is already loaded
+        return
+    }
 
     undef @xml;
     $xmlfile = "";
@@ -238,6 +257,8 @@ sub loadtest {
     return 0;
 }
 
+
+# Return entire document as list of lines
 sub fulltest {
     return @xml;
 }
@@ -332,45 +353,6 @@ sub loadarray {
         close($temp);
     }
     return @array;
-}
-
-# Given two array references, this function will store them in two temporary
-# files, run 'diff' on them, store the result and return the diff output!
-
-sub showdiff {
-    my ($logdir, $firstref, $secondref)=@_;
-
-    my $file1="$logdir/check-generated";
-    my $file2="$logdir/check-expected";
-
-    open(my $temp, ">", "$file1") || die "Failure writing diff file";
-    for(@$firstref) {
-        my $l = $_;
-        $l =~ s/\r/[CR]/g;
-        $l =~ s/\n/[LF]/g;
-        $l =~ s/([^\x20-\x7f])/sprintf "%%%02x", ord $1/eg;
-        print $temp $l;
-        print $temp "\n";
-    }
-    close($temp) || die "Failure writing diff file";
-
-    open($temp, ">", "$file2") || die "Failure writing diff file";
-    for(@$secondref) {
-        my $l = $_;
-        $l =~ s/\r/[CR]/g;
-        $l =~ s/\n/[LF]/g;
-        $l =~ s/([^\x20-\x7f])/sprintf "%%%02x", ord $1/eg;
-        print $temp $l;
-        print $temp "\n";
-    }
-    close($temp) || die "Failure writing diff file";
-    my @out = `diff -u $file2 $file1 2>/dev/null`;
-
-    if(!$out[0]) {
-        @out = `diff -c $file2 $file1 2>/dev/null`;
-    }
-
-    return @out;
 }
 
 

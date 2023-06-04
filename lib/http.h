@@ -44,7 +44,7 @@ typedef enum {
 
 #ifndef CURL_DISABLE_HTTP
 
-#if defined(ENABLE_QUIC) || defined(USE_NGHTTP2)
+#if defined(ENABLE_QUIC)
 #include <stdint.h>
 #endif
 
@@ -212,43 +212,12 @@ struct HTTP {
     HTTPSEND_BODY     /* sending body */
   } sending;
 
-  void *impl_ctx;     /* context for actual HTTP implementation */
-
-#ifdef USE_WEBSOCKETS
-  struct websocket ws;
-#endif
-
 #ifndef CURL_DISABLE_HTTP
+  void *h2_ctx;              /* HTTP/2 implementation context */
+  void *h3_ctx;              /* HTTP/3 implementation context */
   struct dynbuf send_buffer; /* used if the request couldn't be sent in one
                                 chunk, points to an allocated send_buffer
                                 struct */
-#endif
-#ifdef USE_NGHTTP2
-  /*********** for HTTP/2 we store stream-local data here *************/
-  int32_t stream_id; /* stream we are interested in */
-  struct bufq h2_sendbuf; /* request body data buffere for sending */
-  size_t h2_send_hds_len; /* amount of bytes in first cf_send() that
-                             are header bytes. Or 0 if not known. */
-  struct bufq h2_recvbuf;
-  size_t h2_recv_hds_len; /* how many bytes in recvbuf are headers */
-  struct dynhds resp_trailers;
-  bool close_handled; /* TRUE if stream closure is handled by libcurl */
-
-  char **push_headers;       /* allocated array */
-  size_t push_headers_used;  /* number of entries filled in */
-  size_t push_headers_alloc; /* number of entries allocated */
-  uint32_t error; /* HTTP/2 stream error code */
-  bool bodystarted;
-  int status_code; /* HTTP status code */
-  char *mem;     /* points to a buffer in memory to store received data */
-  size_t len;    /* size of the buffer 'mem' points to */
-  size_t memlen; /* size of data copied to mem */
-  /* fields used by both HTTP/2 and HTTP/3 */
-  const uint8_t *upload_mem; /* points to a buffer to read from */
-  size_t upload_len; /* size of the buffer 'upload_mem' points to */
-  curl_off_t upload_left; /* number of bytes left to upload */
-  bool closed; /* TRUE on stream close */
-  bool reset;  /* TRUE on stream reset */
 #endif
 };
 
@@ -287,10 +256,11 @@ Curl_http_output_auth(struct Curl_easy *data,
 /* Decode HTTP status code string. */
 CURLcode Curl_http_decode_status(int *pstatus, const char *s, size_t len);
 
+
 /**
  * All about a core HTTP request, excluding body and trailers
  */
-struct http_req {
+struct httpreq {
   char method[12];
   char *scheme;
   char *authority;
@@ -302,13 +272,41 @@ struct http_req {
 /**
  * Create a HTTP request struct.
  */
-CURLcode Curl_http_req_make(struct http_req **preq,
-                            const char *method,
-                            const char *scheme,
-                            const char *authority,
-                            const char *path);
+CURLcode Curl_http_req_make(struct httpreq **preq,
+                            const char *method, size_t m_len,
+                            const char *scheme, size_t s_len,
+                            const char *authority, size_t a_len,
+                            const char *path, size_t p_len);
 
-void Curl_http_req_free(struct http_req *req);
+CURLcode Curl_http_req_make2(struct httpreq **preq,
+                             const char *method, size_t m_len,
+                             CURLU *url, const char *scheme_default);
+
+void Curl_http_req_free(struct httpreq *req);
+
+#define HTTP_PSEUDO_METHOD ":method"
+#define HTTP_PSEUDO_SCHEME ":scheme"
+#define HTTP_PSEUDO_AUTHORITY ":authority"
+#define HTTP_PSEUDO_PATH ":path"
+#define HTTP_PSEUDO_STATUS ":status"
+
+/**
+ * Create the list of HTTP/2 headers which represent the request,
+ * using HTTP/2 pseudo headers preceeding the `req->headers`.
+ *
+ * Applies the following transformations:
+ * - if `authority` is set, any "Host" header is removed.
+ * - if `authority` is unset and a "Host" header is present, use
+ *   that as `authority` and remove "Host"
+ * - removes and Connection header fields as defined in rfc9113 ch. 8.2.2
+ * - lower-cases the header field names
+ *
+ * @param h2_headers will contain the HTTP/2 headers on success
+ * @param req        the request to transform
+ * @param data       the handle to lookup defaults like ' :scheme' from
+ */
+CURLcode Curl_http_req_to_h2(struct dynhds *h2_headers,
+                             struct httpreq *req, struct Curl_easy *data);
 
 /**
  * All about a core HTTP response, excluding body and trailers

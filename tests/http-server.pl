@@ -38,7 +38,7 @@ use serverhelp qw(
     server_logfilename
     );
 
-use sshhelp qw(
+use pathhelp qw(
     exe_ext
     );
 
@@ -53,6 +53,7 @@ my $portfile;        # port number file
 my $logfile;         # log file
 my $cmdfile;         # command file
 my $connect;         # IP to connect to on CONNECT
+my $keepalive_secs;  # number of seconds to keep idle connections
 my $srcdir;
 my $gopher = 0;
 
@@ -126,6 +127,12 @@ while(@ARGV) {
             shift @ARGV;
         }
     }
+    elsif($ARGV[0] eq '--keepalive') {
+        if($ARGV[1]) {
+            $keepalive_secs = $ARGV[1];
+            shift @ARGV;
+        }
+    }
     elsif($ARGV[0] eq '--id') {
         if($ARGV[1] =~ /^(\d+)$/) {
             $idnum = $1 if($1 > 0);
@@ -136,7 +143,7 @@ while(@ARGV) {
         $verbose = 1;
     }
     else {
-        print STDERR "\nWarning: httpserver.pl unknown parameter: $ARGV[0]\n";
+        print STDERR "\nWarning: http-server.pl unknown parameter: $ARGV[0]\n";
     }
     shift @ARGV;
 }
@@ -171,6 +178,7 @@ $flags .= "--pidfile \"$pidfile\" ".
     "--portfile \"$portfile\" ";
 $flags .= "--gopher " if($gopher);
 $flags .= "--connect $connect " if($connect);
+$flags .= "--keepalive $keepalive_secs " if($keepalive_secs);
 if($ipvnum eq 'unix') {
     $flags .= "--unix-socket '$unix_socket' ";
 } else {

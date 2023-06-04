@@ -78,97 +78,30 @@ BEGIN {
     }
 }
 
-use Cwd;
 use Digest::MD5 qw(md5);
-use MIME::Base64;
 use List::Util 'sum';
 
-# Subs imported from serverhelp module
-use serverhelp qw(
-    serverfactors
-    servername_id
-    servername_str
-    servername_canon
-    server_pidfilename
-    server_portfilename
-    server_logfilename
-    );
-
-# Variables and subs imported from sshhelp module
-use sshhelp qw(
-    $hstpubmd5f
-    $hstpubsha256f
-    $sshdexe
-    $sshexe
-    $sftpexe
-    $sshconfig
-    $sftpconfig
-    $sshdlog
-    $sshlog
-    $sftplog
-    $sftpcmds
-    display_sshdconfig
-    display_sshconfig
-    display_sftpconfig
-    display_sshdlog
-    display_sshlog
-    display_sftplog
+use pathhelp qw(
     exe_ext
-    find_sshd
-    find_ssh
-    find_sftp
-    find_httptlssrv
-    sshversioninfo
+    sys_native_current_path
+    );
+use processhelp qw(
+    portable_sleep
     );
 
-use pathhelp;
+use appveyor;
+use azure;
+use getpart;   # array functions
+use servers;
+use valgrind;  # valgrind report parser
+use globalconfig;
+use runner;
+use testutil;
 
-require getpart;   # array functions
-require valgrind;  # valgrind report parser
-require ftp;
-require azure;
-require appveyor;
-
-my $HOSTIP="127.0.0.1";   # address on which the test server listens
-my $HOST6IP="[::1]";      # address on which the test server listens
-my $CLIENTIP="127.0.0.1"; # address which curl uses for incoming connections
-my $CLIENT6IP="[::1]";    # address which curl uses for incoming connections
-
-my %PORT = (nolisten => 47); # port we use for a local non-listening service
-my $HTTPUNIXPATH;        # HTTP server Unix domain socket path
-my $SOCKSUNIXPATH;       # socks server Unix domain socket path
-
-my $use_external_proxy = 0;
-my $proxy_address;
 my %custom_skip_reasons;
 
-my $SSHSRVMD5 = "[uninitialized]"; # MD5 of ssh server public key
-my $SSHSRVSHA256 = "[uninitialized]"; # SHA256 of ssh server public key
-my $CURLVERSION="";          # curl's reported version number
-
-my $srcdir = $ENV{'srcdir'} || '.';
-my $CURL="../src/curl".exe_ext('TOOL'); # what curl binary to run on the tests
-my $VCURL=$CURL;   # what curl binary to use to verify the servers with
-                   # VCURL is handy to set to the system one when the one you
-                   # just built hangs or crashes and thus prevent verification
 my $ACURL=$VCURL;  # what curl binary to use to talk to APIs (relevant for CI)
                    # ACURL is handy to set to the system one for reliability
-my $DBGCURL=$CURL; #"../src/.libs/curl";  # alternative for debugging
-my $TESTDIR="$srcdir/data";
-my $LIBDIR="./libtest";
-my $UNITDIR="./unit";
-my $LOGDIR="log";
-# TODO: $LOGDIR could eventually change later on, so must regenerate all the
-# paths depending on it after $LOGDIR itself changes.
-my $PIDDIR = "$LOGDIR/server";
-# TODO: change this to use server_inputfilename()
-my $SERVERIN="$LOGDIR/server.input"; # what curl sent the server
-my $SERVER2IN="$LOGDIR/server2.input"; # what curl sent the second server
-my $PROXYIN="$LOGDIR/proxy.input"; # what curl sent the proxy
-my $SOCKSIN="$LOGDIR/socksd-request.log"; # what curl sent to the SOCKS proxy
-my $CURLLOG="$LOGDIR/commands.log"; # all command lines run
-my $FTPDCMD="$LOGDIR/ftpserver.cmd"; # copy server instructions here
-my $SERVERLOGS_LOCK="$LOGDIR/serverlogs.lock"; # server logs advisor read lock
 my $CURLCONFIG="../curl-config"; # curl-config from current build
 
 # Normally, all test cases should be run, but at times it is handy to
@@ -182,30 +115,10 @@ my $TESTCASES="all";
 # No variables below this point should need to be modified
 #
 
-# invoke perl like this:
-my $perl="perl -I$srcdir";
-my $server_response_maxtime=13;
-
 my $libtool;
 my $repeat = 0;
 
-# name of the file that the memory debugging creates:
-my $memdump="$LOGDIR/memdump";
-
-# the path to the script that analyzes the memory debug output file:
-my $memanalyze="$perl $srcdir/memanalyze.pl";
-
-my $pwd = getcwd();          # current working directory
-my $posix_pwd = $pwd;
-
 my $start;          # time at which testing started
-my $ftpchecktime=1; # time it took to verify our test FTP server
-my $stunnel = checkcmd("stunnel4") || checkcmd("tstunnel") || checkcmd("stunnel");
-my $valgrind = checktestcmd("valgrind");
-my $valgrind_logfile="--logfile";  # the option name for valgrind 2.X
-my $valgrind_tool;
-my $gdb = checktestcmd("gdb");
-my $httptlssrv = find_httptlssrv();
 
 my $uname_release = `uname -r`;
 my $is_wsl = $uname_release =~ /Microsoft$/;
@@ -214,16 +127,10 @@ my $http_ipv6;      # set if HTTP server has IPv6 support
 my $http_unix;      # set if HTTP server has Unix sockets support
 my $ftp_ipv6;       # set if FTP server has IPv6 support
 
-# this version is decided by the particular nghttp2 library that is being used
-my $h2cver = "h2c";
-
-my $has_shared;     # built as a shared library
-
 my $resolver;       # name of the resolver backend (for human presentation)
 
 my $has_textaware;  # set if running on a system that has a text mode concept
                     # on files. Windows for example
-my @protocols;   # array of lowercase supported protocol servers
 
 my %skipped;    # skipped{reason}=counter, reasons for skip
 my @teststat;   # teststat[testnum]=reason, reasons for skip
@@ -232,13 +139,7 @@ my %ignored_keywords;   # key words of tests to ignore results
 my %enabled_keywords;   # key words of tests to run
 my %disabled;           # disabled test cases
 my %ignored;            # ignored results of test cases
-my $sshdid;      # for socks server, ssh daemon version id
-my $sshdvernum;  # for socks server, ssh daemon version number
-my $sshdverstr;  # for socks server, ssh daemon version string
-my $sshderror;   # for socks server, ssh daemon version error
-
-my $defserverlogslocktimeout = 2; # timeout to await server logs lock removal
-my $defpostcommanddelay = 0; # delay between command and postcheck sections
+my %ignoretestcodes;    # if test results are to be ignored
 
 my $timestats;   # time stamping and stats generation
 my $fullstats;   # show time stats for every single test
@@ -249,44 +150,31 @@ my %timetoolini; # timestamp for each test command run starting
 my %timetoolend; # timestamp for each test command run stopping
 my %timesrvrlog; # timestamp for each test server logs lock removal
 my %timevrfyend; # timestamp for each test result verification end
+my $globalabort; # flag signalling program abort
 
-my $testnumcheck; # test number, set in singletest sub.
-my %oldenv;       # environment variables before test is started
-my %feature;      # array of enabled features
-my %keywords;     # array of keywords from the test spec
+# values for $singletest_state
+use constant {
+    ST_INIT => 0,
+    ST_CLEARLOCKS => 1,
+    ST_INITED => 2,
+    ST_PREPROCESS => 3,
+    ST_RUN => 4,
+};
+my $singletest_state = ST_INIT; # current state of singletest()
+
 
 #######################################################################
 # variables that command line options may set
 #
-
 my $short;
-my $automakestyle;
-my $verbose;
-my $debugprotocol;
 my $no_debuginfod;
-my $anyway;
-my $gdbthis;      # run test case with gdb debugger
-my $gdbxwin;      # use windowed gdb when using gdb
 my $keepoutfiles; # keep stdout and stderr files after tests
 my $clearlocks;   # force removal of files by killing locking processes
-my $listonly;     # only list the tests
 my $postmortem;   # display detailed info about failed tests
-my $err_unexpected; # error instead of warning on server unexpectedly alive
-my $run_event_based; # run curl with --test-event to test the event API
 my $run_disabled; # run the specific tests even if listed in DISABLED
 my $scrambleorder;
-
-my %run;          # running server
-my %doesntrun;    # servers that don't work, identified by pidfile
-my %serverpidfile;# all server pid file names, identified by server id
-my %serverportfile;# all server port file names, identified by server id
-my %runcert;      # cert file currently in use by an ssl running server
-
-# torture test variables
-my $torture;
-my $tortalloc;
-my $shallow;
 my $randseed = 0;
+my $jobs = 0;
 
 # Azure Pipelines specific variables
 my $AZURE_RUN_ID = 0;
@@ -306,30 +194,10 @@ sub logmsg {
     }
 }
 
-# get the name of the current user
-my $USER = $ENV{USER};          # Linux
-if (!$USER) {
-    $USER = $ENV{USERNAME};     # Windows
-    if (!$USER) {
-        $USER = $ENV{LOGNAME};  # Some Unix (I think)
-    }
-}
-
-# enable memory debugging if curl is compiled with it
-$ENV{'CURL_MEMDEBUG'} = $memdump;
-$ENV{'CURL_ENTROPY'}="12345678";
-$ENV{'CURL_FORCETIME'}=1; # for debug NTLM magic
-$ENV{'CURL_GLOBAL_INIT'}=1; # debug curl_global_init/cleanup use
-$ENV{'HOME'}=$pwd;
-$ENV{'CURL_HOME'}=$ENV{'HOME'};
-$ENV{'XDG_CONFIG_HOME'}=$ENV{'HOME'};
-$ENV{'COLUMNS'}=79; # screen width!
-
 sub catch_zap {
     my $signame = shift;
     logmsg "runtests.pl received SIG$signame, exiting\n";
-    stopservers($verbose);
-    die "Somebody sent me a SIG$signame";
+    $globalabort = 1;
 }
 $SIG{INT} = \&catch_zap;
 $SIG{TERM} = \&catch_zap;
@@ -371,161 +239,11 @@ if (!$ENV{"NGHTTPX"}) {
     $ENV{"NGHTTPX"} = checktestcmd("nghttpx");
 }
 if ($ENV{"NGHTTPX"}) {
-    my $nghttpx_version=join(' ', runclientoutput("$ENV{'NGHTTPX'} -v"));
+    my $nghttpx_version=join(' ', `"$ENV{'NGHTTPX'} -v 2>/dev/null"`);
     $nghttpx_h3 = $nghttpx_version =~ /nghttp3\//;
     chomp $nghttpx_h3;
 }
 
-
-#######################################################################
-# Load serverpidfile and serverportfile hashes with file names for all
-# possible servers.
-#
-sub init_serverpidfile_hash {
-  for my $proto (('ftp', 'gopher', 'http', 'imap', 'pop3', 'smtp', 'http/2', 'http/3')) {
-    for my $ssl (('', 's')) {
-      for my $ipvnum ((4, 6)) {
-        for my $idnum ((1, 2, 3)) {
-          my $serv = servername_id("$proto$ssl", $ipvnum, $idnum);
-          my $pidf = server_pidfilename($PIDDIR, "$proto$ssl", $ipvnum, $idnum);
-          $serverpidfile{$serv} = $pidf;
-          my $portf = server_portfilename($PIDDIR, "$proto$ssl", $ipvnum, $idnum);
-          $serverportfile{$serv} = $portf;
-        }
-      }
-    }
-  }
-  for my $proto (('tftp', 'sftp', 'socks', 'ssh', 'rtsp', 'httptls',
-                  'dict', 'smb', 'smbs', 'telnet', 'mqtt')) {
-    for my $ipvnum ((4, 6)) {
-      for my $idnum ((1, 2)) {
-        my $serv = servername_id($proto, $ipvnum, $idnum);
-        my $pidf = server_pidfilename($PIDDIR, $proto, $ipvnum, $idnum);
-        $serverpidfile{$serv} = $pidf;
-        my $portf = server_portfilename($PIDDIR, $proto, $ipvnum, $idnum);
-        $serverportfile{$serv} = $portf;
-      }
-    }
-  }
-  for my $proto (('http', 'imap', 'pop3', 'smtp', 'http/2', 'http/3')) {
-    for my $ssl (('', 's')) {
-      my $serv = servername_id("$proto$ssl", "unix", 1);
-      my $pidf = server_pidfilename($PIDDIR, "$proto$ssl", "unix", 1);
-      $serverpidfile{$serv} = $pidf;
-      my $portf = server_portfilename($PIDDIR, "$proto$ssl", "unix", 1);
-      $serverportfile{$serv} = $portf;
-    }
-  }
-}
-
-#######################################################################
-# Check if a given child process has just died. Reaps it if so.
-#
-sub checkdied {
-    my $pid = $_[0];
-    if((not defined $pid) || $pid <= 0) {
-        return 0;
-    }
-    use POSIX ":sys_wait_h";
-    my $rc = pidwait($pid, &WNOHANG);
-    return ($rc == $pid)?1:0;
-}
-
-#######################################################################
-# Start a new thread/process and run the given command line in there.
-# Return the pids (yes plural) of the new child process to the parent.
-#
-sub startnew {
-    my ($cmd, $pidfile, $timeout, $fakepidfile)=@_;
-
-    logmsg "startnew: $cmd\n" if ($verbose);
-
-    my $child = fork();
-
-    if(not defined $child) {
-        logmsg "startnew: fork() failure detected\n";
-        return (-1,-1);
-    }
-
-    if(0 == $child) {
-        # Here we are the child. Run the given command.
-
-        # Flush output.
-        $| = 1;
-
-        # Put an "exec" in front of the command so that the child process
-        # keeps this child's process ID.
-        exec("exec $cmd") || die "Can't exec() $cmd: $!";
-
-        # exec() should never return back here to this process. We protect
-        # ourselves by calling die() just in case something goes really bad.
-        die "error: exec() has returned";
-    }
-
-    # Ugly hack but ssh client and gnutls-serv don't support pid files
-    if ($fakepidfile) {
-        if(open(my $out, ">", "$pidfile")) {
-            print $out $child . "\n";
-            close($out) || die "Failure writing pidfile";
-            logmsg "startnew: $pidfile faked with pid=$child\n" if($verbose);
-        }
-        else {
-            logmsg "startnew: failed to write fake $pidfile with pid=$child\n";
-        }
-        # could/should do a while connect fails sleep a bit and loop
-        portable_sleep($timeout);
-        if (checkdied($child)) {
-            logmsg "startnew: child process has failed to start\n" if($verbose);
-            return (-1,-1);
-        }
-    }
-
-    my $pid2 = 0;
-    my $count = $timeout;
-    while($count--) {
-        $pid2 = pidfromfile($pidfile);
-        if(($pid2 > 0) && pidexists($pid2)) {
-            # if $pid2 is valid, then make sure this pid is alive, as
-            # otherwise it is just likely to be the _previous_ pidfile or
-            # similar!
-            last;
-        }
-        if (checkdied($child)) {
-            logmsg "startnew: child process has died, server might start up\n"
-                if($verbose);
-            # We can't just abort waiting for the server with a
-            # return (-1,-1);
-            # because the server might have forked and could still start
-            # up normally. Instead, just reduce the amount of time we remain
-            # waiting.
-            $count >>= 2;
-        }
-        sleep(1);
-    }
-
-    # Return two PIDs, the one for the child process we spawned and the one
-    # reported by the server itself (in case it forked again on its own).
-    # Both (potentially) need to be killed at the end of the test.
-    return ($child, $pid2);
-}
-
-
-#######################################################################
-# Check for a command in the PATH of the test server.
-#
-sub checkcmd {
-    my ($cmd)=@_;
-    my @paths=(split(m/[:]/, $ENV{'PATH'}), "/usr/sbin", "/usr/local/sbin",
-               "/sbin", "/usr/bin", "/usr/local/bin",
-               "$LIBDIR/.libs", "$LIBDIR");
-    for(@paths) {
-        if( -x "$_/$cmd" && ! -d "$_/$cmd") {
-            # executable bit but not a directory!
-            return "$_/$cmd";
-        }
-    }
-    return "";
-}
 
 #######################################################################
 # Get the list of tests that the tests/data/Makefile.am knows about!
@@ -545,2173 +263,6 @@ sub get_disttests {
     close($dh);
 }
 
-#######################################################################
-# Check for a command in the PATH of the machine running curl.
-#
-sub checktestcmd {
-    my ($cmd)=@_;
-    return checkcmd($cmd);
-}
-
-#######################################################################
-# Run the application under test and return its return code
-#
-sub runclient {
-    my ($cmd)=@_;
-    my $ret = system($cmd);
-    print "CMD ($ret): $cmd\n" if($verbose && !$torture);
-    return $ret;
-
-# This is one way to test curl on a remote machine
-#    my $out = system("ssh $CLIENTIP cd \'$pwd\' \\; \'$cmd\'");
-#    sleep 2;    # time to allow the NFS server to be updated
-#    return $out;
-}
-
-#######################################################################
-# Run the application under test and return its stdout
-#
-sub runclientoutput {
-    my ($cmd)=@_;
-    return `$cmd 2>/dev/null`;
-
-# This is one way to test curl on a remote machine
-#    my @out = `ssh $CLIENTIP cd \'$pwd\' \\; \'$cmd\'`;
-#    sleep 2;    # time to allow the NFS server to be updated
-#    return @out;
- }
-
-#######################################################################
-# Memory allocation test and failure torture testing.
-#
-sub torture {
-    my ($testcmd, $testnum, $gdbline) = @_;
-
-    # remove memdump first to be sure we get a new nice and clean one
-    unlink($memdump);
-
-    # First get URL from test server, ignore the output/result
-    runclient($testcmd);
-
-    logmsg " CMD: $testcmd\n" if($verbose);
-
-    # memanalyze -v is our friend, get the number of allocations made
-    my $count=0;
-    my @out = `$memanalyze -v $memdump`;
-    for(@out) {
-        if(/^Operations: (\d+)/) {
-            $count = $1;
-            last;
-        }
-    }
-    if(!$count) {
-        logmsg " found no functions to make fail\n";
-        return 0;
-    }
-
-    my @ttests = (1 .. $count);
-    if($shallow && ($shallow < $count)) {
-        my $discard = scalar(@ttests) - $shallow;
-        my $percent = sprintf("%.2f%%", $shallow * 100 / scalar(@ttests));
-        logmsg " $count functions found, but only fail $shallow ($percent)\n";
-        while($discard) {
-            my $rm;
-            do {
-                # find a test to discard
-                $rm = rand(scalar(@ttests));
-            } while(!$ttests[$rm]);
-            $ttests[$rm] = undef;
-            $discard--;
-        }
-    }
-    else {
-        logmsg " $count functions to make fail\n";
-    }
-
-    for (@ttests) {
-        my $limit = $_;
-        my $fail;
-        my $dumped_core;
-
-        if(!defined($limit)) {
-            # --shallow can undefine them
-            next;
-        }
-        if($tortalloc && ($tortalloc != $limit)) {
-            next;
-        }
-
-        if($verbose) {
-            my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) =
-                localtime(time());
-            my $now = sprintf("%02d:%02d:%02d ", $hour, $min, $sec);
-            logmsg "Fail function no: $limit at $now\r";
-        }
-
-        # make the memory allocation function number $limit return failure
-        $ENV{'CURL_MEMLIMIT'} = $limit;
-
-        # remove memdump first to be sure we get a new nice and clean one
-        unlink($memdump);
-
-        my $cmd = $testcmd;
-        if($valgrind && !$gdbthis) {
-            my @valgrindoption = getpart("verify", "valgrind");
-            if((!@valgrindoption) || ($valgrindoption[0] !~ /disable/)) {
-                my $valgrindcmd = "$valgrind ";
-                $valgrindcmd .= "$valgrind_tool " if($valgrind_tool);
-                $valgrindcmd .= "--quiet --leak-check=yes ";
-                $valgrindcmd .= "--suppressions=$srcdir/valgrind.supp ";
-                # $valgrindcmd .= "--gen-suppressions=all ";
-                $valgrindcmd .= "--num-callers=16 ";
-                $valgrindcmd .= "${valgrind_logfile}=$LOGDIR/valgrind$testnum";
-                $cmd = "$valgrindcmd $testcmd";
-            }
-        }
-        logmsg "*** Function number $limit is now set to fail ***\n" if($gdbthis);
-
-        my $ret = 0;
-        if($gdbthis) {
-            runclient($gdbline);
-        }
-        else {
-            $ret = runclient($cmd);
-        }
-        #logmsg "$_ Returned " . ($ret >> 8) . "\n";
-
-        # Now clear the variable again
-        delete $ENV{'CURL_MEMLIMIT'} if($ENV{'CURL_MEMLIMIT'});
-
-        if(-r "core") {
-            # there's core file present now!
-            logmsg " core dumped\n";
-            $dumped_core = 1;
-            $fail = 2;
-        }
-
-        if($valgrind) {
-            my @e = valgrindparse("$LOGDIR/valgrind$testnum");
-            if(@e && $e[0]) {
-                if($automakestyle) {
-                    logmsg "FAIL: torture $testnum - valgrind\n";
-                }
-                else {
-                    logmsg " valgrind ERROR ";
-                    logmsg @e;
-                }
-                $fail = 1;
-            }
-        }
-
-        # verify that it returns a proper error code, doesn't leak memory
-        # and doesn't core dump
-        if(($ret & 255) || ($ret >> 8) >= 128) {
-            logmsg " system() returned $ret\n";
-            $fail=1;
-        }
-        else {
-            my @memdata=`$memanalyze $memdump`;
-            my $leak=0;
-            for(@memdata) {
-                if($_ ne "") {
-                    # well it could be other memory problems as well, but
-                    # we call it leak for short here
-                    $leak=1;
-                }
-            }
-            if($leak) {
-                logmsg "** MEMORY FAILURE\n";
-                logmsg @memdata;
-                logmsg `$memanalyze -l $memdump`;
-                $fail = 1;
-            }
-        }
-        if($fail) {
-            logmsg " Failed on function number $limit in test.\n",
-            " invoke with \"-t$limit\" to repeat this single case.\n";
-            stopservers($verbose);
-            return 1;
-        }
-    }
-
-    logmsg "torture OK\n";
-    return 0;
-}
-
-#######################################################################
-# Return the port to use for the given protocol.
-#
-sub protoport {
-    my ($proto) = @_;
-    return $PORT{$proto} || "[not running]";
-}
-
-#######################################################################
-# Stop a test server along with pids which aren't in the %run hash yet.
-# This also stops all servers which are relative to the given one.
-#
-sub stopserver {
-    my ($server, $pidlist) = @_;
-
-    #
-    # kill sockfilter processes for pingpong relative server
-    #
-    if($server =~ /^(ftp|imap|pop3|smtp)s?(\d*)(-ipv6|)$/) {
-        my $proto  = $1;
-        my $idnum  = ($2 && ($2 > 1)) ? $2 : 1;
-        my $ipvnum = ($3 && ($3 =~ /6$/)) ? 6 : 4;
-        killsockfilters($PIDDIR, $proto, $ipvnum, $idnum, $verbose);
-    }
-    #
-    # All servers relative to the given one must be stopped also
-    #
-    my @killservers;
-    if($server =~ /^(ftp|http|imap|pop3|smtp)s((\d*)(-ipv6|-unix|))$/) {
-        # given a stunnel based ssl server, also kill non-ssl underlying one
-        push @killservers, "${1}${2}";
-    }
-    elsif($server =~ /^(ftp|http|imap|pop3|smtp)((\d*)(-ipv6|-unix|))$/) {
-        # given a non-ssl server, also kill stunnel based ssl piggybacking one
-        push @killservers, "${1}s${2}";
-    }
-    elsif($server =~ /^(socks)((\d*)(-ipv6|))$/) {
-        # given a socks server, also kill ssh underlying one
-        push @killservers, "ssh${2}";
-    }
-    elsif($server =~ /^(ssh)((\d*)(-ipv6|))$/) {
-        # given a ssh server, also kill socks piggybacking one
-        push @killservers, "socks${2}";
-    }
-    if($server eq "http" or $server eq "https") {
-        # since the http2+3 server is a proxy that needs to know about the
-        # dynamic http port it too needs to get restarted when the http server
-        # is killed
-        push @killservers, "http/2";
-        push @killservers, "http/3";
-    }
-    push @killservers, $server;
-    #
-    # kill given pids and server relative ones clearing them in %run hash
-    #
-    foreach my $server (@killservers) {
-        if($run{$server}) {
-            # we must prepend a space since $pidlist may already contain a pid
-            $pidlist .= " $run{$server}";
-            $run{$server} = 0;
-        }
-        $runcert{$server} = 0 if($runcert{$server});
-    }
-    killpid($verbose, $pidlist);
-    #
-    # cleanup server pid files
-    #
-    my $result = 0;
-    foreach my $server (@killservers) {
-        my $pidfile = $serverpidfile{$server};
-        my $pid = processexists($pidfile);
-        if($pid > 0) {
-            if($err_unexpected) {
-                logmsg "ERROR: ";
-                $result = -1;
-            }
-            else {
-                logmsg "Warning: ";
-            }
-            logmsg "$server server unexpectedly alive\n";
-            killpid($verbose, $pid);
-        }
-        unlink($pidfile) if(-f $pidfile);
-    }
-
-    return $result;
-}
-
-#######################################################################
-# Return flags to let curl use an external HTTP proxy
-#
-sub getexternalproxyflags {
-    return " --proxy $proxy_address ";
-}
-
-#######################################################################
-# Verify that the server that runs on $ip, $port is our server.  This also
-# implies that we can speak with it, as there might be occasions when the
-# server runs fine but we cannot talk to it ("Failed to connect to ::1: Can't
-# assign requested address")
-#
-sub verifyhttp {
-    my ($proto, $ipvnum, $idnum, $ip, $port_or_path) = @_;
-    my $server = servername_id($proto, $ipvnum, $idnum);
-    my $bonus="";
-    # $port_or_path contains a path for Unix sockets, sws ignores the port
-    my $port = ($ipvnum eq "unix") ? 80 : $port_or_path;
-
-    my $verifyout = "$LOGDIR/".
-        servername_canon($proto, $ipvnum, $idnum) .'_verify.out';
-    unlink($verifyout) if(-f $verifyout);
-
-    my $verifylog = "$LOGDIR/".
-        servername_canon($proto, $ipvnum, $idnum) .'_verify.log';
-    unlink($verifylog) if(-f $verifylog);
-
-    if($proto eq "gopher") {
-        # gopher is funny
-        $bonus="1/";
-    }
-
-    my $flags = "--max-time $server_response_maxtime ";
-    $flags .= "--output $verifyout ";
-    $flags .= "--silent ";
-    $flags .= "--verbose ";
-    $flags .= "--globoff ";
-    $flags .= "--unix-socket '$port_or_path' " if $ipvnum eq "unix";
-    $flags .= "--insecure " if($proto eq 'https');
-    if($use_external_proxy) {
-        $flags .= getexternalproxyflags();
-    }
-    $flags .= "\"$proto://$ip:$port/${bonus}verifiedserver\"";
-
-    my $cmd = "$VCURL $flags 2>$verifylog";
-
-    # verify if our/any server is running on this port
-    logmsg "RUN: $cmd\n" if($verbose);
-    my $res = runclient($cmd);
-
-    $res >>= 8; # rotate the result
-    if($res & 128) {
-        logmsg "RUN: curl command died with a coredump\n";
-        return -1;
-    }
-
-    if($res && $verbose) {
-        logmsg "RUN: curl command returned $res\n";
-        if(open(my $file, "<", "$verifylog")) {
-            while(my $string = <$file>) {
-                logmsg "RUN: $string" if($string !~ /^([ \t]*)$/);
-            }
-            close($file);
-        }
-    }
-
-    my $data;
-    if(open(my $file, "<", "$verifyout")) {
-        while(my $string = <$file>) {
-            $data = $string;
-            last; # only want first line
-        }
-        close($file);
-    }
-
-    my $pid = 0;
-    if($data && ($data =~ /WE ROOLZ: (\d+)/)) {
-        $pid = 0+$1;
-    }
-    elsif($res == 6) {
-        # curl: (6) Couldn't resolve host '::1'
-        logmsg "RUN: failed to resolve host ($proto://$ip:$port/verifiedserver)\n";
-        return -1;
-    }
-    elsif($data || ($res && ($res != 7))) {
-        logmsg "RUN: Unknown server on our $server port: $port ($res)\n";
-        return -1;
-    }
-    return $pid;
-}
-
-#######################################################################
-# Verify that the server that runs on $ip, $port is our server.  This also
-# implies that we can speak with it, as there might be occasions when the
-# server runs fine but we cannot talk to it ("Failed to connect to ::1: Can't
-# assign requested address")
-#
-sub verifyftp {
-    my ($proto, $ipvnum, $idnum, $ip, $port) = @_;
-    my $server = servername_id($proto, $ipvnum, $idnum);
-    my $time=time();
-    my $extra="";
-
-    my $verifylog = "$LOGDIR/".
-        servername_canon($proto, $ipvnum, $idnum) .'_verify.log';
-    unlink($verifylog) if(-f $verifylog);
-
-    if($proto eq "ftps") {
-        $extra .= "--insecure --ftp-ssl-control ";
-    }
-
-    my $flags = "--max-time $server_response_maxtime ";
-    $flags .= "--silent ";
-    $flags .= "--verbose ";
-    $flags .= "--globoff ";
-    $flags .= $extra;
-    if($use_external_proxy) {
-        $flags .= getexternalproxyflags();
-    }
-    $flags .= "\"$proto://$ip:$port/verifiedserver\"";
-
-    my $cmd = "$VCURL $flags 2>$verifylog";
-
-    # check if this is our server running on this port:
-    logmsg "RUN: $cmd\n" if($verbose);
-    my @data = runclientoutput($cmd);
-
-    my $res = $? >> 8; # rotate the result
-    if($res & 128) {
-        logmsg "RUN: curl command died with a coredump\n";
-        return -1;
-    }
-
-    my $pid = 0;
-    foreach my $line (@data) {
-        if($line =~ /WE ROOLZ: (\d+)/) {
-            # this is our test server with a known pid!
-            $pid = 0+$1;
-            last;
-        }
-    }
-    if($pid <= 0 && @data && $data[0]) {
-        # this is not a known server
-        logmsg "RUN: Unknown server on our $server port: $port\n";
-        return 0;
-    }
-    # we can/should use the time it took to verify the FTP server as a measure
-    # on how fast/slow this host/FTP is.
-    my $took = int(0.5+time()-$time);
-
-    if($verbose) {
-        logmsg "RUN: Verifying our test $server server took $took seconds\n";
-    }
-    $ftpchecktime = $took>=1?$took:1; # make sure it never is below 1
-
-    return $pid;
-}
-
-#######################################################################
-# Verify that the server that runs on $ip, $port is our server.  This also
-# implies that we can speak with it, as there might be occasions when the
-# server runs fine but we cannot talk to it ("Failed to connect to ::1: Can't
-# assign requested address")
-#
-sub verifyrtsp {
-    my ($proto, $ipvnum, $idnum, $ip, $port) = @_;
-    my $server = servername_id($proto, $ipvnum, $idnum);
-
-    my $verifyout = "$LOGDIR/".
-        servername_canon($proto, $ipvnum, $idnum) .'_verify.out';
-    unlink($verifyout) if(-f $verifyout);
-
-    my $verifylog = "$LOGDIR/".
-        servername_canon($proto, $ipvnum, $idnum) .'_verify.log';
-    unlink($verifylog) if(-f $verifylog);
-
-    my $flags = "--max-time $server_response_maxtime ";
-    $flags .= "--output $verifyout ";
-    $flags .= "--silent ";
-    $flags .= "--verbose ";
-    $flags .= "--globoff ";
-    if($use_external_proxy) {
-        $flags .= getexternalproxyflags();
-    }
-    # currently verification is done using http
-    $flags .= "\"http://$ip:$port/verifiedserver\"";
-
-    my $cmd = "$VCURL $flags 2>$verifylog";
-
-    # verify if our/any server is running on this port
-    logmsg "RUN: $cmd\n" if($verbose);
-    my $res = runclient($cmd);
-
-    $res >>= 8; # rotate the result
-    if($res & 128) {
-        logmsg "RUN: curl command died with a coredump\n";
-        return -1;
-    }
-
-    if($res && $verbose) {
-        logmsg "RUN: curl command returned $res\n";
-        if(open(my $file, "<", "$verifylog")) {
-            while(my $string = <$file>) {
-                logmsg "RUN: $string" if($string !~ /^[ \t]*$/);
-            }
-            close($file);
-        }
-    }
-
-    my $data;
-    if(open(my $file, "<", "$verifyout")) {
-        while(my $string = <$file>) {
-            $data = $string;
-            last; # only want first line
-        }
-        close($file);
-    }
-
-    my $pid = 0;
-    if($data && ($data =~ /RTSP_SERVER WE ROOLZ: (\d+)/)) {
-        $pid = 0+$1;
-    }
-    elsif($res == 6) {
-        # curl: (6) Couldn't resolve host '::1'
-        logmsg "RUN: failed to resolve host ($proto://$ip:$port/verifiedserver)\n";
-        return -1;
-    }
-    elsif($data || ($res != 7)) {
-        logmsg "RUN: Unknown server on our $server port: $port\n";
-        return -1;
-    }
-    return $pid;
-}
-
-#######################################################################
-# Verify that the ssh server has written out its pidfile, recovering
-# the pid from the file and returning it if a process with that pid is
-# actually alive, or a negative value if the process is dead.
-#
-sub verifyssh {
-    my ($proto, $ipvnum, $idnum, $ip, $port) = @_;
-    my $pidfile = server_pidfilename($PIDDIR, $proto, $ipvnum, $idnum);
-    my $pid = processexists($pidfile);
-    if($pid < 0) {
-        logmsg "RUN: SSH server has died after starting up\n";
-    }
-    return $pid;
-}
-
-#######################################################################
-# Verify that we can connect to the sftp server, properly authenticate
-# with generated config and key files and run a simple remote pwd.
-#
-sub verifysftp {
-    my ($proto, $ipvnum, $idnum, $ip, $port) = @_;
-    my $server = servername_id($proto, $ipvnum, $idnum);
-    my $verified = 0;
-    # Find out sftp client canonical file name
-    my $sftp = find_sftp();
-    if(!$sftp) {
-        logmsg "RUN: SFTP server cannot find $sftpexe\n";
-        return -1;
-    }
-    # Find out ssh client canonical file name
-    my $ssh = find_ssh();
-    if(!$ssh) {
-        logmsg "RUN: SFTP server cannot find $sshexe\n";
-        return -1;
-    }
-    # Connect to sftp server, authenticate and run a remote pwd
-    # command using our generated configuration and key files
-    my $cmd = "\"$sftp\" -b $PIDDIR/$sftpcmds -F $PIDDIR/$sftpconfig -S \"$ssh\" $ip > $sftplog 2>&1";
-    my $res = runclient($cmd);
-    # Search for pwd command response in log file
-    if(open(my $sftplogfile, "<", "$sftplog")) {
-        while(<$sftplogfile>) {
-            if(/^Remote working directory: /) {
-                $verified = 1;
-                last;
-            }
-        }
-        close($sftplogfile);
-    }
-    return $verified;
-}
-
-#######################################################################
-# Verify that the non-stunnel HTTP TLS extensions capable server that runs
-# on $ip, $port is our server.  This also implies that we can speak with it,
-# as there might be occasions when the server runs fine but we cannot talk
-# to it ("Failed to connect to ::1: Can't assign requested address")
-#
-sub verifyhttptls {
-    my ($proto, $ipvnum, $idnum, $ip, $port) = @_;
-    my $server = servername_id($proto, $ipvnum, $idnum);
-    my $pidfile = server_pidfilename($PIDDIR, $proto, $ipvnum, $idnum);
-
-    my $verifyout = "$LOGDIR/".
-        servername_canon($proto, $ipvnum, $idnum) .'_verify.out';
-    unlink($verifyout) if(-f $verifyout);
-
-    my $verifylog = "$LOGDIR/".
-        servername_canon($proto, $ipvnum, $idnum) .'_verify.log';
-    unlink($verifylog) if(-f $verifylog);
-
-    my $flags = "--max-time $server_response_maxtime ";
-    $flags .= "--output $verifyout ";
-    $flags .= "--verbose ";
-    $flags .= "--globoff ";
-    $flags .= "--insecure ";
-    $flags .= "--tlsauthtype SRP ";
-    $flags .= "--tlsuser jsmith ";
-    $flags .= "--tlspassword abc ";
-    if($use_external_proxy) {
-        $flags .= getexternalproxyflags();
-    }
-    $flags .= "\"https://$ip:$port/verifiedserver\"";
-
-    my $cmd = "$VCURL $flags 2>$verifylog";
-
-    # verify if our/any server is running on this port
-    logmsg "RUN: $cmd\n" if($verbose);
-    my $res = runclient($cmd);
-
-    $res >>= 8; # rotate the result
-    if($res & 128) {
-        logmsg "RUN: curl command died with a coredump\n";
-        return -1;
-    }
-
-    if($res && $verbose) {
-        logmsg "RUN: curl command returned $res\n";
-        if(open(my $file, "<", "$verifylog")) {
-            while(my $string = <$file>) {
-                logmsg "RUN: $string" if($string !~ /^([ \t]*)$/);
-            }
-            close($file);
-        }
-    }
-
-    my $data;
-    if(open(my $file, "<", "$verifyout")) {
-        while(my $string = <$file>) {
-            $data .= $string;
-        }
-        close($file);
-    }
-
-    my $pid = 0;
-    if($data && ($data =~ /(GNUTLS|GnuTLS)/) && ($pid = processexists($pidfile))) {
-        if($pid < 0) {
-            logmsg "RUN: $server server has died after starting up\n";
-        }
-        return $pid;
-    }
-    elsif($res == 6) {
-        # curl: (6) Couldn't resolve host '::1'
-        logmsg "RUN: failed to resolve host (https://$ip:$port/verifiedserver)\n";
-        return -1;
-    }
-    elsif($data || ($res && ($res != 7))) {
-        logmsg "RUN: Unknown server on our $server port: $port ($res)\n";
-        return -1;
-    }
-    return $pid;
-}
-
-#######################################################################
-# STUB for verifying socks
-#
-sub verifysocks {
-    my ($proto, $ipvnum, $idnum, $ip, $port) = @_;
-    my $pidfile = server_pidfilename($PIDDIR, $proto, $ipvnum, $idnum);
-    my $pid = processexists($pidfile);
-    if($pid < 0) {
-        logmsg "RUN: SOCKS server has died after starting up\n";
-    }
-    return $pid;
-}
-
-#######################################################################
-# Verify that the server that runs on $ip, $port is our server.  This also
-# implies that we can speak with it, as there might be occasions when the
-# server runs fine but we cannot talk to it ("Failed to connect to ::1: Can't
-# assign requested address")
-#
-sub verifysmb {
-    my ($proto, $ipvnum, $idnum, $ip, $port) = @_;
-    my $server = servername_id($proto, $ipvnum, $idnum);
-    my $time=time();
-    my $extra="";
-
-    my $verifylog = "$LOGDIR/".
-        servername_canon($proto, $ipvnum, $idnum) .'_verify.log';
-    unlink($verifylog) if(-f $verifylog);
-
-    my $flags = "--max-time $server_response_maxtime ";
-    $flags .= "--silent ";
-    $flags .= "--verbose ";
-    $flags .= "--globoff ";
-    $flags .= "-u 'curltest:curltest' ";
-    $flags .= $extra;
-    $flags .= "\"$proto://$ip:$port/SERVER/verifiedserver\"";
-
-    my $cmd = "$VCURL $flags 2>$verifylog";
-
-    # check if this is our server running on this port:
-    logmsg "RUN: $cmd\n" if($verbose);
-    my @data = runclientoutput($cmd);
-
-    my $res = $? >> 8; # rotate the result
-    if($res & 128) {
-        logmsg "RUN: curl command died with a coredump\n";
-        return -1;
-    }
-
-    my $pid = 0;
-    foreach my $line (@data) {
-        if($line =~ /WE ROOLZ: (\d+)/) {
-            # this is our test server with a known pid!
-            $pid = 0+$1;
-            last;
-        }
-    }
-    if($pid <= 0 && @data && $data[0]) {
-        # this is not a known server
-        logmsg "RUN: Unknown server on our $server port: $port\n";
-        return 0;
-    }
-    # we can/should use the time it took to verify the server as a measure
-    # on how fast/slow this host is.
-    my $took = int(0.5+time()-$time);
-
-    if($verbose) {
-        logmsg "RUN: Verifying our test $server server took $took seconds\n";
-    }
-    $ftpchecktime = $took>=1?$took:1; # make sure it never is below 1
-
-    return $pid;
-}
-
-#######################################################################
-# Verify that the server that runs on $ip, $port is our server.  This also
-# implies that we can speak with it, as there might be occasions when the
-# server runs fine but we cannot talk to it ("Failed to connect to ::1: Can't
-# assign requested address")
-#
-sub verifytelnet {
-    my ($proto, $ipvnum, $idnum, $ip, $port) = @_;
-    my $server = servername_id($proto, $ipvnum, $idnum);
-    my $time=time();
-    my $extra="";
-
-    my $verifylog = "$LOGDIR/".
-        servername_canon($proto, $ipvnum, $idnum) .'_verify.log';
-    unlink($verifylog) if(-f $verifylog);
-
-    my $flags = "--max-time $server_response_maxtime ";
-    $flags .= "--silent ";
-    $flags .= "--verbose ";
-    $flags .= "--globoff ";
-    $flags .= "--upload-file - ";
-    $flags .= $extra;
-    $flags .= "\"$proto://$ip:$port\"";
-
-    my $cmd = "echo 'verifiedserver' | $VCURL $flags 2>$verifylog";
-
-    # check if this is our server running on this port:
-    logmsg "RUN: $cmd\n" if($verbose);
-    my @data = runclientoutput($cmd);
-
-    my $res = $? >> 8; # rotate the result
-    if($res & 128) {
-        logmsg "RUN: curl command died with a coredump\n";
-        return -1;
-    }
-
-    my $pid = 0;
-    foreach my $line (@data) {
-        if($line =~ /WE ROOLZ: (\d+)/) {
-            # this is our test server with a known pid!
-            $pid = 0+$1;
-            last;
-        }
-    }
-    if($pid <= 0 && @data && $data[0]) {
-        # this is not a known server
-        logmsg "RUN: Unknown server on our $server port: $port\n";
-        return 0;
-    }
-    # we can/should use the time it took to verify the server as a measure
-    # on how fast/slow this host is.
-    my $took = int(0.5+time()-$time);
-
-    if($verbose) {
-        logmsg "RUN: Verifying our test $server server took $took seconds\n";
-    }
-
-    return $pid;
-}
-
-
-#######################################################################
-# Verify that the server that runs on $ip, $port is our server.
-# Retry over several seconds before giving up.  The ssh server in
-# particular can take a long time to start if it needs to generate
-# keys on a slow or loaded host.
-#
-# Just for convenience, test harness uses 'https' and 'httptls' literals
-# as values for 'proto' variable in order to differentiate different
-# servers. 'https' literal is used for stunnel based https test servers,
-# and 'httptls' is used for non-stunnel https test servers.
-#
-
-my %protofunc = ('http' => \&verifyhttp,
-                 'https' => \&verifyhttp,
-                 'rtsp' => \&verifyrtsp,
-                 'ftp' => \&verifyftp,
-                 'pop3' => \&verifyftp,
-                 'imap' => \&verifyftp,
-                 'smtp' => \&verifyftp,
-                 'ftps' => \&verifyftp,
-                 'pop3s' => \&verifyftp,
-                 'imaps' => \&verifyftp,
-                 'smtps' => \&verifyftp,
-                 'tftp' => \&verifyftp,
-                 'ssh' => \&verifyssh,
-                 'socks' => \&verifysocks,
-                 'socks5unix' => \&verifysocks,
-                 'gopher' => \&verifyhttp,
-                 'httptls' => \&verifyhttptls,
-                 'dict' => \&verifyftp,
-                 'smb' => \&verifysmb,
-                 'telnet' => \&verifytelnet);
-
-sub verifyserver {
-    my ($proto, $ipvnum, $idnum, $ip, $port) = @_;
-
-    my $count = 30; # try for this many seconds
-    my $pid;
-
-    while($count--) {
-        my $fun = $protofunc{$proto};
-
-        $pid = &$fun($proto, $ipvnum, $idnum, $ip, $port);
-
-        if($pid > 0) {
-            last;
-        }
-        elsif($pid < 0) {
-            # a real failure, stop trying and bail out
-            return 0;
-        }
-        sleep(1);
-    }
-    return $pid;
-}
-
-#######################################################################
-# Single shot server responsiveness test. This should only be used
-# to verify that a server present in %run hash is still functional
-#
-sub responsiveserver {
-    my ($proto, $ipvnum, $idnum, $ip, $port) = @_;
-    my $prev_verbose = $verbose;
-
-    $verbose = 0;
-    my $fun = $protofunc{$proto};
-    my $pid = &$fun($proto, $ipvnum, $idnum, $ip, $port);
-    $verbose = $prev_verbose;
-
-    if($pid > 0) {
-        return 1; # responsive
-    }
-
-    my $srvrname = servername_str($proto, $ipvnum, $idnum);
-    logmsg " server precheck FAILED (unresponsive $srvrname server)\n";
-    return 0;
-}
-
-#######################################################################
-# start the http2 server
-#
-sub runhttp2server {
-    my ($verb) = @_;
-    my $proto="http/2";
-    my $ipvnum = 4;
-    my $idnum = 0;
-    my $exe = "$perl $srcdir/http2-server.pl";
-    my $verbose_flag = "--verbose ";
-
-    my $server = servername_id($proto, $ipvnum, $idnum);
-
-    my $pidfile = $serverpidfile{$server};
-
-    # don't retry if the server doesn't work
-    if ($doesntrun{$pidfile}) {
-        return (0, 0, 0, 0);
-    }
-
-    my $pid = processexists($pidfile);
-    if($pid > 0) {
-        stopserver($server, "$pid");
-    }
-    unlink($pidfile) if(-f $pidfile);
-
-    my $srvrname = servername_str($proto, $ipvnum, $idnum);
-    my $logfile = server_logfilename($LOGDIR, $proto, $ipvnum, $idnum);
-
-    my $flags = "";
-    $flags .= "--nghttpx \"$ENV{'NGHTTPX'}\" ";
-    $flags .= "--pidfile \"$pidfile\" --logfile \"$logfile\" ";
-    $flags .= "--logdir \"$LOGDIR\" ";
-    $flags .= "--connect $HOSTIP:" . protoport("http") . " ";
-    $flags .= $verbose_flag if($debugprotocol);
-
-    my ($http2pid, $pid2);
-    my $port = 23113;
-    my $port2 = 23114;
-    for(1 .. 10) {
-        $port += int(rand(900));
-        $port2 += int(rand(900));
-        my $aflags = "--port $port --port2 $port2 $flags";
-
-        my $cmd = "$exe $aflags";
-        ($http2pid, $pid2) = startnew($cmd, $pidfile, 15, 0);
-
-        if($http2pid <= 0 || !pidexists($http2pid)) {
-            # it is NOT alive
-            stopserver($server, "$pid2");
-            $doesntrun{$pidfile} = 1;
-            $http2pid = $pid2 = 0;
-            next;
-        }
-        $doesntrun{$pidfile} = 0;
-
-        if($verb) {
-            logmsg "RUN: $srvrname server PID $http2pid ".
-                   "http-port $port https-port $port2 ".
-                   "backend $HOSTIP:" . protoport("http") . "\n";
-        }
-        last;
-    }
-
-    logmsg "RUN: failed to start the $srvrname server\n" if(!$http2pid);
-
-    return ($http2pid, $pid2, $port, $port2);
-}
-
-#######################################################################
-# start the http3 server
-#
-sub runhttp3server {
-    my ($verb, $cert) = @_;
-    my $proto="http/3";
-    my $ipvnum = 4;
-    my $idnum = 0;
-    my $exe = "$perl $srcdir/http3-server.pl";
-    my $verbose_flag = "--verbose ";
-
-    my $server = servername_id($proto, $ipvnum, $idnum);
-
-    my $pidfile = $serverpidfile{$server};
-
-    # don't retry if the server doesn't work
-    if ($doesntrun{$pidfile}) {
-        return (0, 0, 0);
-    }
-
-    my $pid = processexists($pidfile);
-    if($pid > 0) {
-        stopserver($server, "$pid");
-    }
-    unlink($pidfile) if(-f $pidfile);
-
-    my $srvrname = servername_str($proto, $ipvnum, $idnum);
-    my $logfile = server_logfilename($LOGDIR, $proto, $ipvnum, $idnum);
-
-    my $flags = "";
-    $flags .= "--nghttpx \"$ENV{'NGHTTPX'}\" ";
-    $flags .= "--pidfile \"$pidfile\" --logfile \"$logfile\" ";
-    $flags .= "--logdir \"$LOGDIR\" ";
-    $flags .= "--connect $HOSTIP:" . protoport("http") . " ";
-    $flags .= "--cert \"$cert\" " if($cert);
-    $flags .= $verbose_flag if($debugprotocol);
-
-    my ($http3pid, $pid3);
-    my $port = 24113;
-    for(1 .. 10) {
-        $port += int(rand(900));
-        my $aflags = "--port $port $flags";
-
-        my $cmd = "$exe $aflags";
-        ($http3pid, $pid3) = startnew($cmd, $pidfile, 15, 0);
-
-        if($http3pid <= 0 || !pidexists($http3pid)) {
-            # it is NOT alive
-            stopserver($server, "$pid3");
-            $doesntrun{$pidfile} = 1;
-            $http3pid = $pid3 = 0;
-            next;
-        }
-        $doesntrun{$pidfile} = 0;
-
-        if($verb) {
-            logmsg "RUN: $srvrname server PID $http3pid port $port\n";
-        }
-        last;
-    }
-
-    logmsg "RUN: failed to start the $srvrname server\n" if(!$http3pid);
-
-    return ($http3pid, $pid3, $port);
-}
-
-#######################################################################
-# start the http server
-#
-sub runhttpserver {
-    my ($proto, $verb, $alt, $port_or_path) = @_;
-    my $ip = $HOSTIP;
-    my $ipvnum = 4;
-    my $idnum = 1;
-    my $exe = "$perl $srcdir/http-server.pl";
-    my $verbose_flag = "--verbose ";
-
-    if($alt eq "ipv6") {
-        # if IPv6, use a different setup
-        $ipvnum = 6;
-        $ip = $HOST6IP;
-    }
-    elsif($alt eq "proxy") {
-        # basically the same, but another ID
-        $idnum = 2;
-    }
-    elsif($alt eq "unix") {
-        # IP (protocol) is mutually exclusive with Unix sockets
-        $ipvnum = "unix";
-    }
-
-    my $server = servername_id($proto, $ipvnum, $idnum);
-
-    my $pidfile = $serverpidfile{$server};
-
-    # don't retry if the server doesn't work
-    if ($doesntrun{$pidfile}) {
-        return (0, 0, 0);
-    }
-
-    my $pid = processexists($pidfile);
-    if($pid > 0) {
-        stopserver($server, "$pid");
-    }
-    unlink($pidfile) if(-f $pidfile);
-
-    my $srvrname = servername_str($proto, $ipvnum, $idnum);
-    my $portfile = $serverportfile{$server};
-
-    my $logfile = server_logfilename($LOGDIR, $proto, $ipvnum, $idnum);
-
-    my $flags = "";
-    $flags .= "--gopher " if($proto eq "gopher");
-    $flags .= "--connect $HOSTIP " if($alt eq "proxy");
-    $flags .= $verbose_flag if($debugprotocol);
-    $flags .= "--pidfile \"$pidfile\" --logfile \"$logfile\" ";
-    $flags .= "--logdir \"$LOGDIR\" ";
-    $flags .= "--portfile $portfile ";
-    $flags .= "--config $FTPDCMD ";
-    $flags .= "--id $idnum " if($idnum > 1);
-    if($ipvnum eq "unix") {
-        $flags .= "--unix-socket '$port_or_path' ";
-    } else {
-        $flags .= "--ipv$ipvnum --port 0 ";
-    }
-    $flags .= "--srcdir \"$TESTDIR/..\"";
-
-    my $cmd = "$exe $flags";
-    my ($httppid, $pid2) = startnew($cmd, $pidfile, 15, 0);
-
-    if($httppid <= 0 || !pidexists($httppid)) {
-        # it is NOT alive
-        logmsg "RUN: failed to start the $srvrname server\n";
-        stopserver($server, "$pid2");
-        displaylogs($testnumcheck);
-        $doesntrun{$pidfile} = 1;
-        return (0, 0, 0);
-    }
-
-    # where is it?
-    my $port = 0;
-    if(!$port_or_path) {
-        $port = $port_or_path = pidfromfile($portfile);
-    }
-
-    # Server is up. Verify that we can speak to it.
-    my $pid3 = verifyserver($proto, $ipvnum, $idnum, $ip, $port_or_path);
-    if(!$pid3) {
-        logmsg "RUN: $srvrname server failed verification\n";
-        # failed to talk to it properly. Kill the server and return failure
-        stopserver($server, "$httppid $pid2");
-        displaylogs($testnumcheck);
-        $doesntrun{$pidfile} = 1;
-        return (0, 0, 0);
-    }
-    $pid2 = $pid3;
-
-    if($verb) {
-        logmsg "RUN: $srvrname server is on PID $httppid port $port_or_path\n";
-    }
-
-    return ($httppid, $pid2, $port);
-}
-
-#######################################################################
-# start the https stunnel based server
-#
-sub runhttpsserver {
-    my ($verb, $proto, $proxy, $certfile) = @_;
-    my $ip = $HOSTIP;
-    my $ipvnum = 4;
-    my $idnum = 1;
-
-    if($proxy eq "proxy") {
-        # the https-proxy runs as https2
-        $idnum = 2;
-    }
-
-    if(!$stunnel) {
-        return (0, 0, 0);
-    }
-
-    my $server = servername_id($proto, $ipvnum, $idnum);
-
-    my $pidfile = $serverpidfile{$server};
-
-    # don't retry if the server doesn't work
-    if ($doesntrun{$pidfile}) {
-        return (0, 0, 0);
-    }
-
-    my $pid = processexists($pidfile);
-    if($pid > 0) {
-        stopserver($server, "$pid");
-    }
-    unlink($pidfile) if(-f $pidfile);
-
-    my $srvrname = servername_str($proto, $ipvnum, $idnum);
-    $certfile = 'stunnel.pem' unless($certfile);
-    my $logfile = server_logfilename($LOGDIR, $proto, $ipvnum, $idnum);
-
-    my $flags = "";
-    $flags .= "--verbose " if($debugprotocol);
-    $flags .= "--pidfile \"$pidfile\" --logfile \"$logfile\" ";
-    $flags .= "--logdir \"$LOGDIR\" ";
-    $flags .= "--id $idnum " if($idnum > 1);
-    $flags .= "--ipv$ipvnum --proto $proto ";
-    $flags .= "--certfile \"$certfile\" " if($certfile ne 'stunnel.pem');
-    $flags .= "--stunnel \"$stunnel\" --srcdir \"$srcdir\" ";
-    if($proto eq "gophers") {
-        $flags .= "--connect " . protoport("gopher");
-    }
-    elsif(!$proxy) {
-        $flags .= "--connect " . protoport("http");
-    }
-    else {
-        # for HTTPS-proxy we connect to the HTTP proxy
-        $flags .= "--connect " . protoport("httpproxy");
-    }
-
-    my $pid2;
-    my $httpspid;
-    my $port = 24512; # start attempt
-    for (1 .. 10) {
-        $port += int(rand(600));
-        my $options = "$flags --accept $port";
-
-        my $cmd = "$perl $srcdir/secureserver.pl $options";
-        ($httpspid, $pid2) = startnew($cmd, $pidfile, 15, 0);
-
-        if($httpspid <= 0 || !pidexists($httpspid)) {
-            # it is NOT alive
-            stopserver($server, "$pid2");
-            displaylogs($testnumcheck);
-            $doesntrun{$pidfile} = 1;
-            $httpspid = $pid2 = 0;
-            next;
-        }
-        # we have a server!
-        if($verb) {
-            logmsg "RUN: $srvrname server is PID $httpspid port $port\n";
-        }
-        last;
-    }
-    $runcert{$server} = $certfile;
-    logmsg "RUN: failed to start the $srvrname server\n" if(!$httpspid);
-
-    return ($httpspid, $pid2, $port);
-}
-
-#######################################################################
-# start the non-stunnel HTTP TLS extensions capable server
-#
-sub runhttptlsserver {
-    my ($verb, $ipv6) = @_;
-    my $proto = "httptls";
-    my $ip = ($ipv6 && ($ipv6 =~ /6$/)) ? "$HOST6IP" : "$HOSTIP";
-    my $ipvnum = ($ipv6 && ($ipv6 =~ /6$/)) ? 6 : 4;
-    my $idnum = 1;
-
-    if(!$httptlssrv) {
-        return (0,0);
-    }
-
-    my $server = servername_id($proto, $ipvnum, $idnum);
-
-    my $pidfile = $serverpidfile{$server};
-
-    # don't retry if the server doesn't work
-    if ($doesntrun{$pidfile}) {
-        return (0, 0, 0);
-    }
-
-    my $pid = processexists($pidfile);
-    if($pid > 0) {
-        stopserver($server, "$pid");
-    }
-    unlink($pidfile) if(-f $pidfile);
-
-    my $srvrname = servername_str($proto, $ipvnum, $idnum);
-    my $logfile = server_logfilename($LOGDIR, $proto, $ipvnum, $idnum);
-
-    my $flags = "";
-    $flags .= "--http ";
-    $flags .= "--debug 1 " if($debugprotocol);
-    $flags .= "--priority NORMAL:+SRP ";
-    $flags .= "--srppasswd $srcdir/certs/srp-verifier-db ";
-    $flags .= "--srppasswdconf $srcdir/certs/srp-verifier-conf";
-
-    my $port = 24367;
-    my ($httptlspid, $pid2);
-    for (1 .. 10) {
-        $port += int(rand(800));
-        my $allflags = "--port $port $flags";
-
-        my $cmd = "$httptlssrv $allflags > $logfile 2>&1";
-        ($httptlspid, $pid2) = startnew($cmd, $pidfile, 10, 1);
-
-        if($httptlspid <= 0 || !pidexists($httptlspid)) {
-            # it is NOT alive
-            stopserver($server, "$pid2");
-            displaylogs($testnumcheck);
-            $doesntrun{$pidfile} = 1;
-            $httptlspid = $pid2 = 0;
-            next;
-        }
-        $doesntrun{$pidfile} = 0;
-
-        if($verb) {
-            logmsg "RUN: $srvrname server PID $httptlspid port $port\n";
-        }
-        last;
-    }
-    logmsg "RUN: failed to start the $srvrname server\n" if(!$httptlspid);
-    return ($httptlspid, $pid2, $port);
-}
-
-#######################################################################
-# start the pingpong server (FTP, POP3, IMAP, SMTP)
-#
-sub runpingpongserver {
-    my ($proto, $id, $verb, $ipv6) = @_;
-    my $ip = ($ipv6 && ($ipv6 =~ /6$/)) ? "$HOST6IP" : "$HOSTIP";
-    my $ipvnum = ($ipv6 && ($ipv6 =~ /6$/)) ? 6 : 4;
-    my $idnum = ($id && ($id =~ /^(\d+)$/) && ($id > 1)) ? $id : 1;
-
-    my $server = servername_id($proto, $ipvnum, $idnum);
-
-    my $pidfile = $serverpidfile{$server};
-    my $portfile = $serverportfile{$server};
-
-    # don't retry if the server doesn't work
-    if ($doesntrun{$pidfile}) {
-        return (0,0);
-    }
-
-    my $pid = processexists($pidfile);
-    if($pid > 0) {
-        stopserver($server, "$pid");
-    }
-    unlink($pidfile) if(-f $pidfile);
-
-    my $srvrname = servername_str($proto, $ipvnum, $idnum);
-    my $logfile = server_logfilename($LOGDIR, $proto, $ipvnum, $idnum);
-
-    my $flags = "";
-    $flags .= "--verbose " if($debugprotocol);
-    $flags .= "--pidfile \"$pidfile\" --logfile \"$logfile\" ";
-    $flags .= "--logdir \"$LOGDIR\" ";
-    $flags .= "--portfile \"$portfile\" ";
-    $flags .= "--srcdir \"$srcdir\" --proto $proto ";
-    $flags .= "--id $idnum " if($idnum > 1);
-    $flags .= "--ipv$ipvnum --port 0 --addr \"$ip\"";
-
-    my $cmd = "$perl $srcdir/ftpserver.pl $flags";
-    my ($ftppid, $pid2) = startnew($cmd, $pidfile, 15, 0);
-
-    if($ftppid <= 0 || !pidexists($ftppid)) {
-        # it is NOT alive
-        logmsg "RUN: failed to start the $srvrname server\n";
-        stopserver($server, "$pid2");
-        displaylogs($testnumcheck);
-        $doesntrun{$pidfile} = 1;
-        return (0,0);
-    }
-
-    # where is it?
-    my $port = pidfromfile($portfile);
-
-    logmsg "PINGPONG runs on port $port ($portfile)\n" if($verb);
-
-    # Server is up. Verify that we can speak to it.
-    my $pid3 = verifyserver($proto, $ipvnum, $idnum, $ip, $port);
-    if(!$pid3) {
-        logmsg "RUN: $srvrname server failed verification\n";
-        # failed to talk to it properly. Kill the server and return failure
-        stopserver($server, "$ftppid $pid2");
-        displaylogs($testnumcheck);
-        $doesntrun{$pidfile} = 1;
-        return (0,0);
-    }
-    $pid2 = $pid3;
-
-    logmsg "RUN: $srvrname server is PID $ftppid port $port\n" if($verb);
-
-    # Assign the correct port variable!
-    if($proto =~ /^(?:ftp|imap|pop3|smtp)$/) {
-        $PORT{$proto . ($ipvnum == 6? '6': '')} = $port;
-    }
-    else {
-        print STDERR "Unsupported protocol $proto!!\n";
-        return (0,0);
-    }
-
-    return ($pid2, $ftppid);
-}
-
-#######################################################################
-# start the ftps/imaps/pop3s/smtps server (or rather, tunnel)
-#
-sub runsecureserver {
-    my ($verb, $ipv6, $certfile, $proto, $clearport) = @_;
-    my $ip = ($ipv6 && ($ipv6 =~ /6$/)) ? "$HOST6IP" : "$HOSTIP";
-    my $ipvnum = ($ipv6 && ($ipv6 =~ /6$/)) ? 6 : 4;
-    my $idnum = 1;
-
-    if(!$stunnel) {
-        return (0,0);
-    }
-
-    my $server = servername_id($proto, $ipvnum, $idnum);
-
-    my $pidfile = $serverpidfile{$server};
-
-    # don't retry if the server doesn't work
-    if ($doesntrun{$pidfile}) {
-        return (0, 0, 0);
-    }
-
-    my $pid = processexists($pidfile);
-    if($pid > 0) {
-        stopserver($server, "$pid");
-    }
-    unlink($pidfile) if(-f $pidfile);
-
-    my $srvrname = servername_str($proto, $ipvnum, $idnum);
-    $certfile = 'stunnel.pem' unless($certfile);
-    my $logfile = server_logfilename($LOGDIR, $proto, $ipvnum, $idnum);
-
-    my $flags = "";
-    $flags .= "--verbose " if($debugprotocol);
-    $flags .= "--pidfile \"$pidfile\" --logfile \"$logfile\" ";
-    $flags .= "--logdir \"$LOGDIR\" ";
-    $flags .= "--id $idnum " if($idnum > 1);
-    $flags .= "--ipv$ipvnum --proto $proto ";
-    $flags .= "--certfile \"$certfile\" " if($certfile ne 'stunnel.pem');
-    $flags .= "--stunnel \"$stunnel\" --srcdir \"$srcdir\" ";
-    $flags .= "--connect $clearport";
-
-    my $protospid;
-    my $pid2;
-    my $port = 26713 + ord $proto;
-    my %usedports = reverse %PORT;
-    for (1 .. 10) {
-        $port += int(rand(700));
-        next if exists $usedports{$port};
-        my $options = "$flags --accept $port";
-        my $cmd = "$perl $srcdir/secureserver.pl $options";
-        ($protospid, $pid2) = startnew($cmd, $pidfile, 15, 0);
-
-        if($protospid <= 0 || !pidexists($protospid)) {
-            # it is NOT alive
-            stopserver($server, "$pid2");
-            displaylogs($testnumcheck);
-            $doesntrun{$pidfile} = 1;
-            $protospid = $pid2 = 0;
-            next;
-        }
-
-        $doesntrun{$pidfile} = 0;
-        $runcert{$server} = $certfile;
-
-        if($verb) {
-            logmsg "RUN: $srvrname server is PID $protospid port $port\n";
-        }
-        last;
-    }
-
-    logmsg "RUN: failed to start the $srvrname server\n" if(!$protospid);
-
-    return ($protospid, $pid2, $port);
-}
-
-#######################################################################
-# start the tftp server
-#
-sub runtftpserver {
-    my ($id, $verb, $ipv6) = @_;
-    my $ip = $HOSTIP;
-    my $proto = 'tftp';
-    my $ipvnum = 4;
-    my $idnum = ($id && ($id =~ /^(\d+)$/) && ($id > 1)) ? $id : 1;
-
-    if($ipv6) {
-        # if IPv6, use a different setup
-        $ipvnum = 6;
-        $ip = $HOST6IP;
-    }
-
-    my $server = servername_id($proto, $ipvnum, $idnum);
-
-    my $pidfile = $serverpidfile{$server};
-
-    # don't retry if the server doesn't work
-    if ($doesntrun{$pidfile}) {
-        return (0, 0, 0);
-    }
-
-    my $pid = processexists($pidfile);
-    if($pid > 0) {
-        stopserver($server, "$pid");
-    }
-    unlink($pidfile) if(-f $pidfile);
-
-    my $srvrname = servername_str($proto, $ipvnum, $idnum);
-    my $portfile = $serverportfile{$server};
-    my $logfile = server_logfilename($LOGDIR, $proto, $ipvnum, $idnum);
-
-    my $flags = "";
-    $flags .= "--verbose " if($debugprotocol);
-    $flags .= "--pidfile \"$pidfile\" ";
-    $flags .= "--portfile \"$portfile\" ";
-    $flags .= "--logfile \"$logfile\" ";
-    $flags .= "--logdir \"$LOGDIR\" ";
-    $flags .= "--id $idnum " if($idnum > 1);
-    $flags .= "--ipv$ipvnum --port 0 --srcdir \"$srcdir\"";
-
-    my $cmd = "$perl $srcdir/tftpserver.pl $flags";
-    my ($tftppid, $pid2) = startnew($cmd, $pidfile, 15, 0);
-
-    if($tftppid <= 0 || !pidexists($tftppid)) {
-        # it is NOT alive
-        logmsg "RUN: failed to start the $srvrname server\n";
-        stopserver($server, "$pid2");
-        displaylogs($testnumcheck);
-        $doesntrun{$pidfile} = 1;
-        return (0, 0, 0);
-    }
-
-    my $port = pidfromfile($portfile);
-
-    # Server is up. Verify that we can speak to it.
-    my $pid3 = verifyserver($proto, $ipvnum, $idnum, $ip, $port);
-    if(!$pid3) {
-        logmsg "RUN: $srvrname server failed verification\n";
-        # failed to talk to it properly. Kill the server and return failure
-        stopserver($server, "$tftppid $pid2");
-        displaylogs($testnumcheck);
-        $doesntrun{$pidfile} = 1;
-        return (0, 0, 0);
-    }
-    $pid2 = $pid3;
-
-    if($verb) {
-        logmsg "RUN: $srvrname server on PID $tftppid port $port\n";
-    }
-
-    return ($pid2, $tftppid, $port);
-}
-
-
-#######################################################################
-# start the rtsp server
-#
-sub runrtspserver {
-    my ($verb, $ipv6) = @_;
-    my $ip = $HOSTIP;
-    my $proto = 'rtsp';
-    my $ipvnum = 4;
-    my $idnum = 1;
-
-    if($ipv6) {
-        # if IPv6, use a different setup
-        $ipvnum = 6;
-        $ip = $HOST6IP;
-    }
-
-    my $server = servername_id($proto, $ipvnum, $idnum);
-
-    my $pidfile = $serverpidfile{$server};
-    my $portfile = $serverportfile{$server};
-
-    # don't retry if the server doesn't work
-    if ($doesntrun{$pidfile}) {
-        return (0, 0, 0);
-    }
-
-    my $pid = processexists($pidfile);
-    if($pid > 0) {
-        stopserver($server, "$pid");
-    }
-    unlink($pidfile) if(-f $pidfile);
-
-    my $srvrname = servername_str($proto, $ipvnum, $idnum);
-    my $logfile = server_logfilename($LOGDIR, $proto, $ipvnum, $idnum);
-
-    my $flags = "";
-    $flags .= "--verbose " if($debugprotocol);
-    $flags .= "--pidfile \"$pidfile\" ";
-    $flags .= "--portfile \"$portfile\" ";
-    $flags .= "--logfile \"$logfile\" ";
-    $flags .= "--logdir \"$LOGDIR\" ";
-    $flags .= "--id $idnum " if($idnum > 1);
-    $flags .= "--ipv$ipvnum --port 0 --srcdir \"$srcdir\"";
-
-    my $cmd = "$perl $srcdir/rtspserver.pl $flags";
-    my ($rtsppid, $pid2) = startnew($cmd, $pidfile, 15, 0);
-
-    if($rtsppid <= 0 || !pidexists($rtsppid)) {
-        # it is NOT alive
-        logmsg "RUN: failed to start the $srvrname server\n";
-        stopserver($server, "$pid2");
-        displaylogs($testnumcheck);
-        $doesntrun{$pidfile} = 1;
-        return (0, 0, 0);
-    }
-
-    my $port = pidfromfile($portfile);
-
-    # Server is up. Verify that we can speak to it.
-    my $pid3 = verifyserver($proto, $ipvnum, $idnum, $ip, $port);
-    if(!$pid3) {
-        logmsg "RUN: $srvrname server failed verification\n";
-        # failed to talk to it properly. Kill the server and return failure
-        stopserver($server, "$rtsppid $pid2");
-        displaylogs($testnumcheck);
-        $doesntrun{$pidfile} = 1;
-        return (0, 0, 0);
-    }
-    $pid2 = $pid3;
-
-    if($verb) {
-        logmsg "RUN: $srvrname server PID $rtsppid port $port\n";
-    }
-
-    return ($rtsppid, $pid2, $port);
-}
-
-
-#######################################################################
-# Start the ssh (scp/sftp) server
-#
-sub runsshserver {
-    my ($id, $verb, $ipv6) = @_;
-    my $ip=$HOSTIP;
-    my $proto = 'ssh';
-    my $ipvnum = 4;
-    my $idnum = ($id && ($id =~ /^(\d+)$/) && ($id > 1)) ? $id : 1;
-    my $port = 20000; # no lower port
-
-    if(!$USER) {
-        logmsg "Can't start ssh server due to lack of USER name";
-        return (0,0,0);
-    }
-
-    my $server = servername_id($proto, $ipvnum, $idnum);
-
-    my $pidfile = $serverpidfile{$server};
-
-    # don't retry if the server doesn't work
-    if ($doesntrun{$pidfile}) {
-        return (0, 0, 0);
-    }
-
-    my $sshd = find_sshd();
-    if($sshd) {
-        ($sshdid,$sshdvernum,$sshdverstr,$sshderror) = sshversioninfo($sshd);
-    }
-
-    my $pid = processexists($pidfile);
-    if($pid > 0) {
-        stopserver($server, "$pid");
-    }
-    unlink($pidfile) if(-f $pidfile);
-
-    my $srvrname = servername_str($proto, $ipvnum, $idnum);
-    my $logfile = server_logfilename($LOGDIR, $proto, $ipvnum, $idnum);
-
-    my $flags = "";
-    $flags .= "--verbose " if($verb);
-    $flags .= "--debugprotocol " if($debugprotocol);
-    $flags .= "--pidfile \"$pidfile\" ";
-    $flags .= "--logdir \"$LOGDIR\" ";
-    $flags .= "--id $idnum " if($idnum > 1);
-    $flags .= "--ipv$ipvnum --addr \"$ip\" ";
-    $flags .= "--user \"$USER\"";
-
-    my $sshpid;
-    my $pid2;
-
-    my $wport = 0,
-    my @tports;
-    for(1 .. 10) {
-
-        # sshd doesn't have a way to pick an unused random port number, so
-        # instead we iterate over possible port numbers to use until we find
-        # one that works
-        $port += int(rand(500));
-        push @tports, $port;
-
-        my $options = "$flags --sshport $port";
-
-        my $cmd = "$perl $srcdir/sshserver.pl $options";
-        ($sshpid, $pid2) = startnew($cmd, $pidfile, 60, 0);
-
-        # on loaded systems sshserver start up can take longer than the
-        # timeout passed to startnew, when this happens startnew completes
-        # without being able to read the pidfile and consequently returns a
-        # zero pid2 above.
-        if($sshpid <= 0 || !pidexists($sshpid)) {
-            # it is NOT alive
-            stopserver($server, "$pid2");
-            $doesntrun{$pidfile} = 1;
-            $sshpid = $pid2 = 0;
-            next;
-        }
-
-        # once it is known that the ssh server is alive, sftp server
-        # verification is performed actually connecting to it, authenticating
-        # and performing a very simple remote command.  This verification is
-        # tried only one time.
-
-        $sshdlog = server_logfilename($LOGDIR, 'ssh', $ipvnum, $idnum);
-        $sftplog = server_logfilename($LOGDIR, 'sftp', $ipvnum, $idnum);
-
-        if(verifysftp('sftp', $ipvnum, $idnum, $ip, $port) < 1) {
-            logmsg "RUN: SFTP server failed verification\n";
-            # failed to talk to it properly. Kill the server and return failure
-            display_sftplog();
-            display_sftpconfig();
-            display_sshdlog();
-            display_sshdconfig();
-            stopserver($server, "$sshpid $pid2");
-            $doesntrun{$pidfile} = 1;
-            $sshpid = $pid2 = 0;
-            next;
-        }
-        # we're happy, no need to loop anymore!
-        $doesntrun{$pidfile} = 0;
-        $wport = $port;
-        last;
-    }
-    logmsg "RUN: failed to start the $srvrname server on $port\n" if(!$sshpid);
-
-    if(!$wport) {
-        logmsg "RUN: couldn't start $srvrname. Tried these ports:";
-        logmsg "RUN: ".join(", ", @tports)."\n";
-        return (0,0,0);
-    }
-
-    my $hostfile;
-    if(!open($hostfile, "<", $PIDDIR . "/" . $hstpubmd5f) ||
-       (read($hostfile, $SSHSRVMD5, 32) != 32) ||
-       !close($hostfile) ||
-       ($SSHSRVMD5 !~ /^[a-f0-9]{32}$/i))
-    {
-        my $msg = "Fatal: $srvrname pubkey md5 missing : \"$hstpubmd5f\" : $!";
-        logmsg "$msg\n";
-        stopservers($verb);
-        die $msg;
-    }
-
-    if(!open($hostfile, "<", $PIDDIR . "/" . $hstpubsha256f) ||
-       (read($hostfile, $SSHSRVSHA256, 48) == 0) ||
-       !close($hostfile))
-    {
-        my $msg = "Fatal: $srvrname pubkey sha256 missing : \"$hstpubsha256f\" : $!";
-        logmsg "$msg\n";
-        stopservers($verb);
-        die $msg;
-    }
-
-    logmsg "RUN: $srvrname on PID $pid2 port $wport\n" if($verb);
-
-    return ($pid2, $sshpid, $wport);
-}
-
-#######################################################################
-# Start the MQTT server
-#
-sub runmqttserver {
-    my ($id, $verb, $ipv6) = @_;
-    my $ip=$HOSTIP;
-    my $proto = 'mqtt';
-    my $port = protoport($proto);
-    my $ipvnum = 4;
-    my $idnum = ($id && ($id =~ /^(\d+)$/) && ($id > 1)) ? $id : 1;
-
-    my $server = servername_id($proto, $ipvnum, $idnum);
-    my $pidfile = $serverpidfile{$server};
-    my $portfile = $serverportfile{$server};
-
-    # don't retry if the server doesn't work
-    if ($doesntrun{$pidfile}) {
-        return (0,0);
-    }
-
-    my $pid = processexists($pidfile);
-    if($pid > 0) {
-        stopserver($server, "$pid");
-    }
-    unlink($pidfile) if(-f $pidfile);
-
-    my $srvrname = servername_str($proto, $ipvnum, $idnum);
-    my $logfile = server_logfilename($LOGDIR, $proto, $ipvnum, $idnum);
-
-    # start our MQTT server - on a random port!
-    my $cmd="server/mqttd".exe_ext('SRV').
-        " --port 0 ".
-        " --pidfile $pidfile".
-        " --portfile $portfile".
-        " --config $FTPDCMD".
-        " --logfile $logfile".
-        " --logdir $LOGDIR";
-    my ($sockspid, $pid2) = startnew($cmd, $pidfile, 30, 0);
-
-    if($sockspid <= 0 || !pidexists($sockspid)) {
-        # it is NOT alive
-        logmsg "RUN: failed to start the $srvrname server\n";
-        stopserver($server, "$pid2");
-        $doesntrun{$pidfile} = 1;
-        return (0,0);
-    }
-
-    my $mqttport = pidfromfile($portfile);
-    $PORT{"mqtt"} = $mqttport;
-
-    if($verb) {
-        logmsg "RUN: $srvrname server is now running PID $pid2 on PORT $mqttport\n";
-    }
-
-    return ($pid2, $sockspid);
-}
-
-#######################################################################
-# Start the socks server
-#
-sub runsocksserver {
-    my ($id, $verb, $ipv6, $is_unix) = @_;
-    my $ip=$HOSTIP;
-    my $proto = 'socks';
-    my $ipvnum = 4;
-    my $idnum = ($id && ($id =~ /^(\d+)$/) && ($id > 1)) ? $id : 1;
-
-    my $server = servername_id($proto, $ipvnum, $idnum);
-
-    my $pidfile = $serverpidfile{$server};
-
-    # don't retry if the server doesn't work
-    if ($doesntrun{$pidfile}) {
-        return (0, 0, 0);
-    }
-
-    my $pid = processexists($pidfile);
-    if($pid > 0) {
-        stopserver($server, "$pid");
-    }
-    unlink($pidfile) if(-f $pidfile);
-
-    my $srvrname = servername_str($proto, $ipvnum, $idnum);
-    my $portfile = $serverportfile{$server};
-    my $logfile = server_logfilename($LOGDIR, $proto, $ipvnum, $idnum);
-
-    # start our socks server, get commands from the FTP cmd file
-    my $cmd="";
-    if($is_unix) {
-        $cmd="server/socksd".exe_ext('SRV').
-            " --pidfile $pidfile".
-            " --reqfile $SOCKSIN".
-            " --logfile $logfile".
-            " --unix-socket $SOCKSUNIXPATH".
-            " --backend $HOSTIP".
-            " --config $FTPDCMD";
-    } else {
-        $cmd="server/socksd".exe_ext('SRV').
-            " --port 0 ".
-            " --pidfile $pidfile".
-            " --portfile $portfile".
-            " --reqfile $SOCKSIN".
-            " --logfile $logfile".
-            " --backend $HOSTIP".
-            " --config $FTPDCMD";
-    }
-    my ($sockspid, $pid2) = startnew($cmd, $pidfile, 30, 0);
-
-    if($sockspid <= 0 || !pidexists($sockspid)) {
-        # it is NOT alive
-        logmsg "RUN: failed to start the $srvrname server\n";
-        stopserver($server, "$pid2");
-        $doesntrun{$pidfile} = 1;
-        return (0, 0, 0);
-    }
-
-    my $port = pidfromfile($portfile);
-
-    if($verb) {
-        logmsg "RUN: $srvrname server is now running PID $pid2\n";
-    }
-
-    return ($pid2, $sockspid, $port);
-}
-
-#######################################################################
-# start the dict server
-#
-sub rundictserver {
-    my ($verb, $alt) = @_;
-    my $proto = "dict";
-    my $ip = $HOSTIP;
-    my $ipvnum = 4;
-    my $idnum = 1;
-
-    if($alt eq "ipv6") {
-        # No IPv6
-    }
-
-    my $server = servername_id($proto, $ipvnum, $idnum);
-
-    my $pidfile = $serverpidfile{$server};
-
-    # don't retry if the server doesn't work
-    if ($doesntrun{$pidfile}) {
-        return (0, 0, 0);
-    }
-
-    my $pid = processexists($pidfile);
-    if($pid > 0) {
-        stopserver($server, "$pid");
-    }
-    unlink($pidfile) if(-f $pidfile);
-
-    my $srvrname = servername_str($proto, $ipvnum, $idnum);
-    my $logfile = server_logfilename($LOGDIR, $proto, $ipvnum, $idnum);
-
-    my $flags = "";
-    $flags .= "--verbose 1 " if($debugprotocol);
-    $flags .= "--pidfile \"$pidfile\" --logfile \"$logfile\" ";
-    $flags .= "--id $idnum " if($idnum > 1);
-    $flags .= "--srcdir \"$srcdir\" ";
-    $flags .= "--host $HOSTIP";
-
-    my $port = 29000;
-    my ($dictpid, $pid2);
-    for(1 .. 10) {
-        $port += int(rand(900));
-        my $aflags = "--port $port $flags";
-        my $cmd = "$srcdir/dictserver.py $aflags";
-        ($dictpid, $pid2) = startnew($cmd, $pidfile, 15, 0);
-
-        if($dictpid <= 0 || !pidexists($dictpid)) {
-            # it is NOT alive
-            stopserver($server, "$pid2");
-            displaylogs($testnumcheck);
-            $doesntrun{$pidfile} = 1;
-            $dictpid = $pid2 = 0;
-            next;
-        }
-        $doesntrun{$pidfile} = 0;
-
-        if($verb) {
-            logmsg "RUN: $srvrname server PID $dictpid port $port\n";
-        }
-        last;
-    }
-    logmsg "RUN: failed to start the $srvrname server\n" if(!$dictpid);
-
-    return ($dictpid, $pid2, $port);
-}
-
-#######################################################################
-# start the SMB server
-#
-sub runsmbserver {
-    my ($verb, $alt) = @_;
-    my $proto = "smb";
-    my $ip = $HOSTIP;
-    my $ipvnum = 4;
-    my $idnum = 1;
-
-    if($alt eq "ipv6") {
-        # No IPv6
-    }
-
-    my $server = servername_id($proto, $ipvnum, $idnum);
-
-    my $pidfile = $serverpidfile{$server};
-
-    # don't retry if the server doesn't work
-    if ($doesntrun{$pidfile}) {
-        return (0, 0, 0);
-    }
-
-    my $pid = processexists($pidfile);
-    if($pid > 0) {
-        stopserver($server, "$pid");
-    }
-    unlink($pidfile) if(-f $pidfile);
-
-    my $srvrname = servername_str($proto, $ipvnum, $idnum);
-    my $logfile = server_logfilename($LOGDIR, $proto, $ipvnum, $idnum);
-
-    my $flags = "";
-    $flags .= "--verbose 1 " if($debugprotocol);
-    $flags .= "--pidfile \"$pidfile\" --logfile \"$logfile\" ";
-    $flags .= "--id $idnum " if($idnum > 1);
-    $flags .= "--srcdir \"$srcdir\" ";
-    $flags .= "--host $HOSTIP";
-
-    my ($smbpid, $pid2);
-    my $port = 31923;
-    for(1 .. 10) {
-        $port += int(rand(760));
-        my $aflags = "--port $port $flags";
-        my $cmd = "$srcdir/smbserver.py $aflags";
-        ($smbpid, $pid2) = startnew($cmd, $pidfile, 15, 0);
-
-        if($smbpid <= 0 || !pidexists($smbpid)) {
-            # it is NOT alive
-            stopserver($server, "$pid2");
-            displaylogs($testnumcheck);
-            $doesntrun{$pidfile} = 1;
-            $smbpid = $pid2 = 0;
-            next;
-        }
-        $doesntrun{$pidfile} = 0;
-
-        if($verb) {
-            logmsg "RUN: $srvrname server PID $smbpid port $port\n";
-        }
-        last;
-    }
-    logmsg "RUN: failed to start the $srvrname server\n" if(!$smbpid);
-
-    return ($smbpid, $pid2, $port);
-}
-
-#######################################################################
-# start the telnet server
-#
-sub runnegtelnetserver {
-    my ($verb, $alt) = @_;
-    my $proto = "telnet";
-    my $ip = $HOSTIP;
-    my $ipvnum = 4;
-    my $idnum = 1;
-
-    if($alt eq "ipv6") {
-        # No IPv6
-    }
-
-    my $server = servername_id($proto, $ipvnum, $idnum);
-
-    my $pidfile = $serverpidfile{$server};
-
-    # don't retry if the server doesn't work
-    if ($doesntrun{$pidfile}) {
-        return (0, 0, 0);
-    }
-
-    my $pid = processexists($pidfile);
-    if($pid > 0) {
-        stopserver($server, "$pid");
-    }
-    unlink($pidfile) if(-f $pidfile);
-
-    my $srvrname = servername_str($proto, $ipvnum, $idnum);
-    my $logfile = server_logfilename($LOGDIR, $proto, $ipvnum, $idnum);
-
-    my $flags = "";
-    $flags .= "--verbose 1 " if($debugprotocol);
-    $flags .= "--pidfile \"$pidfile\" --logfile \"$logfile\" ";
-    $flags .= "--id $idnum " if($idnum > 1);
-    $flags .= "--srcdir \"$srcdir\"";
-
-    my ($ntelpid, $pid2);
-    my $port = 32000;
-    for(1 .. 10) {
-        $port += int(rand(800));
-        my $aflags = "--port $port $flags";
-        my $cmd = "$srcdir/negtelnetserver.py $aflags";
-        ($ntelpid, $pid2) = startnew($cmd, $pidfile, 15, 0);
-
-        if($ntelpid <= 0 || !pidexists($ntelpid)) {
-            # it is NOT alive
-            stopserver($server, "$pid2");
-            displaylogs($testnumcheck);
-            $doesntrun{$pidfile} = 1;
-            $ntelpid = $pid2 = 0;
-            next;
-        }
-        $doesntrun{$pidfile} = 0;
-
-        if($verb) {
-            logmsg "RUN: $srvrname server PID $ntelpid port $port\n";
-        }
-        last;
-    }
-    logmsg "RUN: failed to start the $srvrname server\n" if(!$ntelpid);
-
-    return ($ntelpid, $pid2, $port);
-}
-
-
-#######################################################################
-# Single shot http and gopher server responsiveness test. This should only
-# be used to verify that a server present in %run hash is still functional
-#
-sub responsive_http_server {
-    my ($proto, $verb, $alt, $port_or_path) = @_;
-    my $ip = $HOSTIP;
-    my $ipvnum = 4;
-    my $idnum = 1;
-
-    if($alt eq "ipv6") {
-        # if IPv6, use a different setup
-        $ipvnum = 6;
-        $ip = $HOST6IP;
-    }
-    elsif($alt eq "proxy") {
-        $idnum = 2;
-    }
-    elsif($alt eq "unix") {
-        # IP (protocol) is mutually exclusive with Unix sockets
-        $ipvnum = "unix";
-    }
-
-    return &responsiveserver($proto, $ipvnum, $idnum, $ip, $port_or_path);
-}
-
-#######################################################################
-# Single shot pingpong server responsiveness test. This should only be
-# used to verify that a server present in %run hash is still functional
-#
-sub responsive_pingpong_server {
-    my ($proto, $id, $verb, $ipv6) = @_;
-    my $port;
-    my $ip = ($ipv6 && ($ipv6 =~ /6$/)) ? "$HOST6IP" : "$HOSTIP";
-    my $ipvnum = ($ipv6 && ($ipv6 =~ /6$/)) ? 6 : 4;
-    my $idnum = ($id && ($id =~ /^(\d+)$/) && ($id > 1)) ? $id : 1;
-    my $protoip = $proto . ($ipvnum == 6? '6': '');
-
-    if($proto =~ /^(?:ftp|imap|pop3|smtp)$/) {
-        $port = protoport($protoip);
-    }
-    else {
-        print STDERR "Unsupported protocol $proto!!\n";
-        return 0;
-    }
-
-    return &responsiveserver($proto, $ipvnum, $idnum, $ip, $port);
-}
-
-#######################################################################
-# Single shot rtsp server responsiveness test. This should only be
-# used to verify that a server present in %run hash is still functional
-#
-sub responsive_rtsp_server {
-    my ($verb, $ipv6) = @_;
-    my $proto = 'rtsp';
-    my $port = protoport($proto);
-    my $ip = $HOSTIP;
-    my $ipvnum = 4;
-    my $idnum = 1;
-
-    if($ipv6) {
-        # if IPv6, use a different setup
-        $ipvnum = 6;
-        $port = protoport('rtsp6');
-        $ip = $HOST6IP;
-    }
-
-    return &responsiveserver($proto, $ipvnum, $idnum, $ip, $port);
-}
-
-#######################################################################
-# Single shot tftp server responsiveness test. This should only be
-# used to verify that a server present in %run hash is still functional
-#
-sub responsive_tftp_server {
-    my ($id, $verb, $ipv6) = @_;
-    my $proto = 'tftp';
-    my $port = protoport($proto);
-    my $ip = $HOSTIP;
-    my $ipvnum = 4;
-    my $idnum = ($id && ($id =~ /^(\d+)$/) && ($id > 1)) ? $id : 1;
-
-    if($ipv6) {
-        # if IPv6, use a different setup
-        $ipvnum = 6;
-        $port = protoport('tftp6');
-        $ip = $HOST6IP;
-    }
-
-    return &responsiveserver($proto, $ipvnum, $idnum, $ip, $port);
-}
-
-#######################################################################
-# Single shot non-stunnel HTTP TLS extensions capable server
-# responsiveness test. This should only be used to verify that a
-# server present in %run hash is still functional
-#
-sub responsive_httptls_server {
-    my ($verb, $ipv6) = @_;
-    my $ipvnum = ($ipv6 && ($ipv6 =~ /6$/)) ? 6 : 4;
-    my $proto = "httptls";
-    my $port = protoport($proto);
-    my $ip = "$HOSTIP";
-    my $idnum = 1;
-
-    if ($ipvnum == 6) {
-        $port = protoport("httptls6");
-        $ip = "$HOST6IP";
-    }
-
-    return &responsiveserver($proto, $ipvnum, $idnum, $ip, $port);
-}
-
-#######################################################################
-# Kill the processes that still lock files in a directory
-#
-sub clearlocks {
-    my $dir = $_[0];
-    my $done = 0;
-
-    if(pathhelp::os_is_win()) {
-        $dir = pathhelp::sys_native_abs_path($dir);
-        $dir =~ s/\//\\\\/g;
-        my $handle = "handle.exe";
-        if($ENV{"PROCESSOR_ARCHITECTURE"} =~ /64$/) {
-            $handle = "handle64.exe";
-        }
-        my @handles = `$handle $dir -accepteula -nobanner`;
-        for my $tryhandle (@handles) {
-            if($tryhandle =~ /^(\S+)\s+pid:\s+(\d+)\s+type:\s+(\w+)\s+([0-9A-F]+):\s+(.+)\r\r/) {
-                logmsg "Found $3 lock of '$5' ($4) by $1 ($2)\n";
-                # Ignore stunnel since we cannot do anything about its locks
-                if("$3" eq "File" && "$1" ne "tstunnel.exe") {
-                    logmsg "Killing IMAGENAME eq $1 and PID eq $2\n";
-                    system("taskkill.exe -f -fi \"IMAGENAME eq $1\" -fi \"PID eq $2\" >nul 2>&1");
-                    $done = 1;
-                }
-            }
-        }
-    }
-    return $done;
-}
 
 #######################################################################
 # Remove all files in the specified directory
@@ -2726,7 +277,7 @@ sub cleardir {
         return 0; # can't open dir
     while($file = readdir($dh)) {
         # Don't clear the $PIDDIR since those need to live beyond one test
-        if(($file !~ /^(\.|\.\.)\z/) && "$dir/$file" ne $PIDDIR) {
+        if(($file !~ /^(\.|\.\.)\z/) && "$file" ne $PIDDIR) {
             if(-d "$dir/$file") {
                 if(!cleardir("$dir/$file")) {
                     $done = 0;
@@ -2747,6 +298,47 @@ sub cleardir {
     return $done;
 }
 
+
+#######################################################################
+# Given two array references, this function will store them in two temporary
+# files, run 'diff' on them, store the result and return the diff output!
+sub showdiff {
+    my ($logdir, $firstref, $secondref)=@_;
+
+    my $file1="$logdir/check-generated";
+    my $file2="$logdir/check-expected";
+
+    open(my $temp, ">", "$file1") || die "Failure writing diff file";
+    for(@$firstref) {
+        my $l = $_;
+        $l =~ s/\r/[CR]/g;
+        $l =~ s/\n/[LF]/g;
+        $l =~ s/([^\x20-\x7f])/sprintf "%%%02x", ord $1/eg;
+        print $temp $l;
+        print $temp "\n";
+    }
+    close($temp) || die "Failure writing diff file";
+
+    open($temp, ">", "$file2") || die "Failure writing diff file";
+    for(@$secondref) {
+        my $l = $_;
+        $l =~ s/\r/[CR]/g;
+        $l =~ s/\n/[LF]/g;
+        $l =~ s/([^\x20-\x7f])/sprintf "%%%02x", ord $1/eg;
+        print $temp $l;
+        print $temp "\n";
+    }
+    close($temp) || die "Failure writing diff file";
+    my @out = `diff -u $file2 $file1 2>/dev/null`;
+
+    if(!$out[0]) {
+        @out = `diff -c $file2 $file1 2>/dev/null`;
+    }
+
+    return @out;
+}
+
+
 #######################################################################
 # compare test results with the expected output, we might filter off
 # some pattern that is allowed to differ, output test results
@@ -2762,7 +354,8 @@ sub compare {
 
         if(!$short) {
             logmsg "\n $testnum: $subject FAILED:\n";
-            logmsg showdiff($LOGDIR, $firstref, $secondref);
+            my $logdir = getlogdir($testnum);
+            logmsg showdiff($logdir, $firstref, $secondref);
         }
         elsif(!$automakestyle) {
             logmsg "FAILED\n";
@@ -2776,8 +369,30 @@ sub compare {
 }
 
 #######################################################################
-# display information about curl and the host the test suite runs on
-#
+# Parse and store the protocols in curl's Protocols: line
+sub parseprotocols {
+    my ($line)=@_;
+
+    @protocols = split(' ', lc($line));
+
+    # Generate a "proto-ipv6" version of each protocol to match the
+    # IPv6 <server> name and a "proto-unix" to match the variant which
+    # uses Unix domain sockets. This works even if support isn't
+    # compiled in because the <features> test will fail.
+    push @protocols, map(("$_-ipv6", "$_-unix"), @protocols);
+
+    # 'http-proxy' is used in test cases to do CONNECT through
+    push @protocols, 'http-proxy';
+
+    # 'none' is used in test cases to mean no server
+    push @protocols, 'none';
+}
+
+
+#######################################################################
+# Check & display information about curl and the host the test suite runs on.
+# Information to do with servers is displayed in displayserverfeatures, after
+# the server initialization is performed.
 sub checksystemfeatures {
     my $feat;
     my $curl;
@@ -2790,7 +405,7 @@ sub checksystemfeatures {
 
     my $curlverout="$LOGDIR/curlverout.log";
     my $curlvererr="$LOGDIR/curlvererr.log";
-    my $versioncmd="$CURL --version 1>$curlverout 2>$curlvererr";
+    my $versioncmd=shell_quote($CURL) . " --version 1>$curlverout 2>$curlvererr";
 
     unlink($curlverout);
     unlink($curlvererr);
@@ -2828,7 +443,7 @@ sub checksystemfeatures {
             if($curl =~ /win32|Windows|mingw(32|64)/) {
                 # This is a Windows MinGW build or native build, we need to use
                 # Win32-style path.
-                $pwd = pathhelp::sys_native_current_path();
+                $pwd = sys_native_current_path();
                 $has_textaware = 1;
                 $feature{"win32"} = 1;
                 # set if built with MinGW (as opposed to MinGW-w64)
@@ -2908,19 +523,7 @@ sub checksystemfeatures {
         }
         elsif($_ =~ /^Protocols: (.*)/i) {
             # these are the protocols compiled in to this libcurl
-            @protocols = split(' ', lc($1));
-
-            # Generate a "proto-ipv6" version of each protocol to match the
-            # IPv6 <server> name and a "proto-unix" to match the variant which
-            # uses Unix domain sockets. This works even if support isn't
-            # compiled in because the <features> test will fail.
-            push @protocols, map(("$_-ipv6", "$_-unix"), @protocols);
-
-            # 'http-proxy' is used in test cases to do CONNECT through
-            push @protocols, 'http-proxy';
-
-            # 'none' is used in test cases to mean no server
-            push @protocols, 'none';
+            parseprotocols($1);
         }
         elsif($_ =~ /^Features: (.*)/i) {
             $feat = $1;
@@ -3053,7 +656,7 @@ sub checksystemfeatures {
         close($conf);
     }
 
-    # disable this feature unless debug mode is also enabled
+    # allow this feature only if debug mode is disabled
     $feature{"ld_preload"} = $feature{"ld_preload"} && !$feature{"debug"};
 
     if($feature{"ipv6"}) {
@@ -3083,7 +686,7 @@ sub checksystemfeatures {
         $http_unix = 1 if($sws[0] =~ /unix/);
     }
 
-    open(my $manh, "-|", "$CURL -M 2>&1");
+    open(my $manh, "-|", shell_quote($CURL) . " -M 2>&1");
     while(my $s = <$manh>) {
         if($s =~ /built-in manual was disabled at build-time/) {
             $feature{"manual"} = 0;
@@ -3136,6 +739,7 @@ sub checksystemfeatures {
     my $hosttype=join(' ', runclientoutput("uname -a"));
     my $hostos=$^O;
 
+    # display summary information about curl and the test host
     logmsg ("********* System characteristics ******** \n",
             "* $curl\n",
             "* $libcurl\n",
@@ -3145,17 +749,15 @@ sub checksystemfeatures {
             "* System: $hosttype",
             "* OS: $hostos\n");
 
+    if($jobs) {
+        # Only show if not the default for now
+        logmsg "* Jobs: $jobs\n";
+    }
     if($feature{"TrackMemory"} && $feature{"threaded-resolver"}) {
-        $feature{"TrackMemory"} = 0;
         logmsg("*\n",
                "*** DISABLES memory tracking when using threaded resolver\n",
                "*\n");
     }
-
-    logmsg sprintf("* Servers: %s", $stunnel?"SSL ":"");
-    logmsg sprintf("%s", $http_ipv6?"HTTP-IPv6 ":"");
-    logmsg sprintf("%s", $http_unix?"HTTP-unix ":"");
-    logmsg sprintf("%s\n", $ftp_ipv6?"FTP-IPv6 ":"");
 
     logmsg sprintf("* Env: %s%s%s", $valgrind?"Valgrind ":"",
                    $run_event_based?"event-based ":"",
@@ -3163,17 +765,8 @@ sub checksystemfeatures {
     logmsg sprintf("%s\n", $libtool?"Libtool ":"");
     logmsg ("* Seed: $randseed\n");
 
-    if($verbose) {
-        if($feature{"unix-sockets"}) {
-            logmsg "* Unix socket paths:\n";
-            if($http_unix) {
-                logmsg sprintf("*   HTTP-Unix:%s\n", $HTTPUNIXPATH);
-                logmsg sprintf("*   Socks-Unix:%s\n", $SOCKSUNIXPATH);
-            }
-        }
-    }
-
-    logmsg "***************************************** \n";
+    # Disable memory tracking when using threaded resolver
+    $feature{"TrackMemory"} = $feature{"TrackMemory"} && !$feature{"threaded-resolver"};
 
     # toggle off the features that were disabled in the build
     for my $d(@disabled) {
@@ -3182,157 +775,14 @@ sub checksystemfeatures {
 }
 
 #######################################################################
-# substitute the variable stuff into either a joined up file or
-# a command, in either case passed by reference
+# display information about server features
 #
-sub subVariables {
-    my ($thing, $testnum, $prefix) = @_;
-    my $port;
-
-    if(!$prefix) {
-        $prefix = "%";
-    }
-
-    # test server ports
-    # Substitutes variables like %HTTPPORT and %SMTP6PORT with the server ports
-    foreach my $proto ('DICT',
-                       'FTP', 'FTP6', 'FTPS',
-                       'GOPHER', 'GOPHER6', 'GOPHERS',
-                       'HTTP', 'HTTP6', 'HTTPS',
-                       'HTTPSPROXY', 'HTTPTLS', 'HTTPTLS6',
-                       'HTTP2', 'HTTP2TLS',
-                       'HTTP3',
-                       'IMAP', 'IMAP6', 'IMAPS',
-                       'MQTT',
-                       'NOLISTEN',
-                       'POP3', 'POP36', 'POP3S',
-                       'RTSP', 'RTSP6',
-                       'SMB', 'SMBS',
-                       'SMTP', 'SMTP6', 'SMTPS',
-                       'SOCKS',
-                       'SSH',
-                       'TELNET',
-                       'TFTP', 'TFTP6') {
-        $port = protoport(lc $proto);
-        $$thing =~ s/${prefix}(?:$proto)PORT/$port/g;
-    }
-    # Special case: for PROXYPORT substitution, use httpproxy.
-    $port = protoport('httpproxy');
-    $$thing =~ s/${prefix}PROXYPORT/$port/g;
-
-    # server Unix domain socket paths
-    $$thing =~ s/${prefix}HTTPUNIXPATH/$HTTPUNIXPATH/g;
-    $$thing =~ s/${prefix}SOCKSUNIXPATH/$SOCKSUNIXPATH/g;
-
-    # client IP addresses
-    $$thing =~ s/${prefix}CLIENT6IP/$CLIENT6IP/g;
-    $$thing =~ s/${prefix}CLIENTIP/$CLIENTIP/g;
-
-    # server IP addresses
-    $$thing =~ s/${prefix}HOST6IP/$HOST6IP/g;
-    $$thing =~ s/${prefix}HOSTIP/$HOSTIP/g;
-
-    # misc
-    $$thing =~ s/${prefix}CURL/$CURL/g;
-    $$thing =~ s/${prefix}LOGDIR/$LOGDIR/g;
-    $$thing =~ s/${prefix}PWD/$pwd/g;
-    $$thing =~ s/${prefix}POSIX_PWD/$posix_pwd/g;
-    $$thing =~ s/${prefix}VERSION/$CURLVERSION/g;
-    $$thing =~ s/${prefix}TESTNUMBER/$testnum/g;
-
-    my $file_pwd = $pwd;
-    if($file_pwd !~ /^\//) {
-        $file_pwd = "/$file_pwd";
-    }
-    my $ssh_pwd = $posix_pwd;
-    if ($sshdid && $sshdid =~ /OpenSSH-Windows/) {
-        $ssh_pwd = $file_pwd;
-    }
-
-    $$thing =~ s/${prefix}FILE_PWD/$file_pwd/g;
-    $$thing =~ s/${prefix}SSH_PWD/$ssh_pwd/g;
-    $$thing =~ s/${prefix}SRCDIR/$srcdir/g;
-    $$thing =~ s/${prefix}USER/$USER/g;
-
-    $$thing =~ s/${prefix}SSHSRVMD5/$SSHSRVMD5/g;
-    $$thing =~ s/${prefix}SSHSRVSHA256/$SSHSRVSHA256/g;
-
-    # The purpose of FTPTIME2 and FTPTIME3 is to provide times that can be
-    # used for time-out tests and that would work on most hosts as these
-    # adjust for the startup/check time for this particular host. We needed to
-    # do this to make the test suite run better on very slow hosts.
-    my $ftp2 = $ftpchecktime * 2;
-    my $ftp3 = $ftpchecktime * 3;
-
-    $$thing =~ s/${prefix}FTPTIME2/$ftp2/g;
-    $$thing =~ s/${prefix}FTPTIME3/$ftp3/g;
-
-    # HTTP2
-    $$thing =~ s/${prefix}H2CVER/$h2cver/g;
-}
-
-sub subBase64 {
-    my ($thing) = @_;
-
-    # cut out the base64 piece
-    if($$thing =~ s/%b64\[(.*)\]b64%/%%B64%%/i) {
-        my $d = $1;
-        # encode %NN characters
-        $d =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/eg;
-        my $enc = encode_base64($d, "");
-        # put the result into there
-        $$thing =~ s/%%B64%%/$enc/;
-    }
-    # hex decode
-    if($$thing =~ s/%hex\[(.*)\]hex%/%%HEX%%/i) {
-        # decode %NN characters
-        my $d = $1;
-        $d =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/eg;
-        $$thing =~ s/%%HEX%%/$d/;
-    }
-    if($$thing =~ s/%repeat\[(\d+) x (.*)\]%/%%REPEAT%%/i) {
-        # decode %NN characters
-        my ($d, $n) = ($2, $1);
-        $d =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/eg;
-        my $all = $d x $n;
-        $$thing =~ s/%%REPEAT%%/$all/;
-    }
-}
-
-my $prevupdate;
-sub subNewlines {
-    my ($force, $thing) = @_;
-
-    if($force) {
-        # enforce CRLF newline
-        $$thing =~ s/\x0d*\x0a/\x0d\x0a/;
-        return;
-    }
-
-    # When curl is built with Hyper, it gets all response headers delivered as
-    # name/value pairs and curl "invents" the newlines when it saves the
-    # headers. Therefore, curl will always save headers with CRLF newlines
-    # when built to use Hyper. By making sure we deliver all tests using CRLF
-    # as well, all test comparisons will survive without knowing about this
-    # little quirk.
-
-    if(($$thing =~ /^HTTP\/(1.1|1.0|2|3) [1-5][^\x0d]*\z/) ||
-       ($$thing =~ /^(GET|POST|PUT|DELETE) \S+ HTTP\/\d+(\.\d+)?/) ||
-       (($$thing =~ /^[a-z0-9_-]+: [^\x0d]*\z/i) &&
-        # skip curl error messages
-        ($$thing !~ /^curl: \(\d+\) /))) {
-        # enforce CRLF newline
-        $$thing =~ s/\x0d*\x0a/\x0d\x0a/;
-        $prevupdate = 1;
-    }
-    else {
-        if(($$thing =~ /^\n\z/) && $prevupdate) {
-            # if there's a blank link after a line we update, we hope it is
-            # the empty line following headers
-            $$thing =~ s/\x0a/\x0d\x0a/;
-        }
-        $prevupdate = 0;
-    }
+sub displayserverfeatures {
+    logmsg sprintf("* Servers: %s", $stunnel?"SSL ":"");
+    logmsg sprintf("%s", $http_ipv6?"HTTP-IPv6 ":"");
+    logmsg sprintf("%s", $http_unix?"HTTP-unix ":"");
+    logmsg sprintf("%s\n", $ftp_ipv6?"FTP-IPv6 ":"");
+    logmsg "***************************************** \n";
 }
 
 #######################################################################
@@ -3381,103 +831,6 @@ sub timestampskippedevents {
             $timetoolini{$testnum} = $timeprepini{$testnum};
             $timesrvrend{$testnum} = $timeprepini{$testnum};
             $timesrvrini{$testnum} = $timeprepini{$testnum};
-        }
-    }
-}
-
-#
-# 'prepro' processes the input array and replaces %-variables in the array
-# etc. Returns the processed version of the array
-
-sub prepro {
-    my $testnum = shift;
-    my (@entiretest) = @_;
-    my $show = 1;
-    my @out;
-    my $data_crlf;
-    for my $s (@entiretest) {
-        my $f = $s;
-        if($s =~ /^ *%if (.*)/) {
-            my $cond = $1;
-            my $rev = 0;
-
-            if($cond =~ /^!(.*)/) {
-                $cond = $1;
-                $rev = 1;
-            }
-            $rev ^= $feature{$cond} ? 1 : 0;
-            $show = $rev;
-            next;
-        }
-        elsif($s =~ /^ *%else/) {
-            $show ^= 1;
-            next;
-        }
-        elsif($s =~ /^ *%endif/) {
-            $show = 1;
-            next;
-        }
-        if($show) {
-            # The processor does CRLF replacements in the <data*> sections if
-            # necessary since those parts might be read by separate servers.
-            if($s =~ /^ *<data(.*)\>/) {
-                if($1 =~ /crlf="yes"/ ||
-                   ($feature{"hyper"} && ($keywords{"HTTP"} || $keywords{"HTTPS"}))) {
-                    $data_crlf = 1;
-                }
-            }
-            elsif(($s =~ /^ *<\/data/) && $data_crlf) {
-                $data_crlf = 0;
-            }
-            subVariables(\$s, $testnum, "%");
-            subBase64(\$s);
-            subNewlines(0, \$s) if($data_crlf);
-            push @out, $s;
-        }
-    }
-    return @out;
-}
-
-# Massage the command result code into a useful form
-sub normalize_cmdres {
-    my $cmdres = $_[0];
-    my $signal_num  = $cmdres & 127;
-    my $dumped_core = $cmdres & 128;
-
-    if(!$anyway && ($signal_num || $dumped_core)) {
-        $cmdres = 1000;
-    }
-    else {
-        $cmdres >>= 8;
-        $cmdres = (2000 + $signal_num) if($signal_num && !$cmdres);
-    }
-    return ($cmdres, $dumped_core);
-}
-
-# See if Valgrind should actually be used
-sub use_valgrind {
-    if($valgrind) {
-        my @valgrindoption = getpart("verify", "valgrind");
-        if((!@valgrindoption) || ($valgrindoption[0] !~ /disable/)) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
-
-# restore environment variables that were modified in test
-sub restore_test_env {
-    my $deleteoldenv = $_[0];   # 1 to delete the saved contents after restore
-    foreach my $var (keys %oldenv) {
-        if($oldenv{$var} eq 'notset') {
-            delete $ENV{$var} if($ENV{$var});
-        }
-        else {
-            $ENV{$var} = $oldenv{$var};
-        }
-        if($deleteoldenv) {
-            delete $oldenv{$var};
         }
     }
 }
@@ -3533,6 +886,40 @@ sub citest_finishtestrun {
 }
 
 
+# add one set of test timings from the runner to global set
+sub updatetesttimings {
+    my ($testnum, %testtimings)=@_;
+
+    if(defined $testtimings{"timeprepini"}) {
+        $timeprepini{$testnum} = $testtimings{"timeprepini"};
+    }
+    if(defined $testtimings{"timesrvrini"}) {
+        $timesrvrini{$testnum} = $testtimings{"timesrvrini"};
+    }
+    if(defined $testtimings{"timesrvrend"}) {
+        $timesrvrend{$testnum} = $testtimings{"timesrvrend"};
+    }
+    if(defined $testtimings{"timetoolini"}) {
+        $timetoolini{$testnum} = $testtimings{"timetoolini"};
+    }
+    if(defined $testtimings{"timetoolend"}) {
+        $timetoolend{$testnum} = $testtimings{"timetoolend"};
+    }
+    if(defined $testtimings{"timesrvrlog"}) {
+        $timesrvrlog{$testnum} = $testtimings{"timesrvrlog"};
+    }
+}
+
+
+#######################################################################
+# Return the log directory for the given test
+# There is only one directory for the moment
+sub getlogdir {
+    my $testnum = $_[0];
+    return $LOGDIR;
+}
+
+
 #######################################################################
 # Verify that this test case should be run
 sub singletest_shouldrun {
@@ -3540,19 +927,6 @@ sub singletest_shouldrun {
     my $why;   # why the test won't be run
     my $errorreturncode = 1; # 1 means normal error, 2 means ignored error
     my @what;  # what features are needed
-
-    # first, remove all lingering log files
-    if(!cleardir($LOGDIR) && $clearlocks) {
-        clearlocks($LOGDIR);
-        cleardir($LOGDIR);
-    }
-
-    # copy test number to a global scope var, this allows
-    # testnum checking when starting test harness servers.
-    $testnumcheck = $testnum;
-
-    # timestamp test preparation start
-    $timeprepini{$testnum} = Time::HiRes::time();
 
     if($disttests !~ /test$testnum(\W|\z)/ ) {
         logmsg "Warning: test$testnum not present in tests/data/Makefile.inc\n";
@@ -3570,7 +944,6 @@ sub singletest_shouldrun {
         $errorreturncode = 2;
     }
 
-    # load the test case file definition
     if(loadtest("${TESTDIR}/test${testnum}")) {
         if($verbose) {
             # this is not a test
@@ -3617,17 +990,15 @@ sub singletest_shouldrun {
         }
     }
 
-    my @info_keywords = getpart("info", "keywords");
+    my @info_keywords;
     if(!$why) {
-        my $match;
-
-        # Clear the list of keywords from the last test
-        %keywords = ();
+        @info_keywords = getpart("info", "keywords");
 
         if(!$info_keywords[0]) {
             $why = "missing the <keywords> section!";
         }
 
+        my $match;
         for my $k (@info_keywords) {
             chomp $k;
             if ($disabled_keywords{lc($k)}) {
@@ -3640,8 +1011,6 @@ sub singletest_shouldrun {
                 logmsg "Warning: test$testnum result is ignored due to $k\n";
                 $errorreturncode = 2;
             }
-
-            $keywords{$k} = 1;
         }
 
         if(!$why && !$match && %enabled_keywords) {
@@ -3678,132 +1047,6 @@ sub singletest_shouldrun {
 
 
 #######################################################################
-# Start the servers needed to run this test case
-sub singletest_startservers {
-    my ($testnum, $why) = @_;
-
-    # remove test server commands file before servers are started/verified
-    unlink($FTPDCMD) if(-f $FTPDCMD);
-
-    # timestamp required servers verification start
-    $timesrvrini{$testnum} = Time::HiRes::time();
-
-    if (!$why && !$listonly) {
-        $why = serverfortest($testnum);
-    }
-
-    # timestamp required servers verification end
-    $timesrvrend{$testnum} = Time::HiRes::time();
-
-    # remove server output logfile after servers are started/verified
-    unlink($SERVERIN);
-    unlink($SERVER2IN);
-    unlink($PROXYIN);
-
-    return $why;
-}
-
-
-#######################################################################
-# Generate preprocessed test file
-sub singletest_preprocess {
-    my $testnum = $_[0];
-
-    # Save a preprocessed version of the entire test file. This allows more
-    # "basic" test case readers to enjoy variable replacements.
-    my @entiretest = fulltest();
-    my $otest = "$LOGDIR/test$testnum";
-
-    @entiretest = prepro($testnum, @entiretest);
-
-    # save the new version
-    open(my $fulltesth, ">", "$otest") || die "Failure writing test file";
-    foreach my $bytes (@entiretest) {
-        print $fulltesth pack('a*', $bytes) or die "Failed to print '$bytes': $!";
-    }
-    close($fulltesth) || die "Failure writing test file";
-
-    # in case the process changed the file, reload it
-    loadtest("$LOGDIR/test${testnum}");
-}
-
-
-#######################################################################
-# Set up the test environment to run this test case
-sub singletest_setenv {
-    my @setenv = getpart("client", "setenv");
-    foreach my $s (@setenv) {
-        chomp $s;
-        if($s =~ /([^=]*)=(.*)/) {
-            my ($var, $content) = ($1, $2);
-            # remember current setting, to restore it once test runs
-            $oldenv{$var} = ($ENV{$var})?"$ENV{$var}":'notset';
-            # set new value
-            if(!$content) {
-                delete $ENV{$var} if($ENV{$var});
-            }
-            else {
-                if($var =~ /^LD_PRELOAD/) {
-                    if(exe_ext('TOOL') && (exe_ext('TOOL') eq '.exe')) {
-                        # print "Skipping LD_PRELOAD due to lack of OS support\n";
-                        next;
-                    }
-                    if($feature{"debug"} || !$has_shared) {
-                        # print "Skipping LD_PRELOAD due to no release shared build\n";
-                        next;
-                    }
-                }
-                $ENV{$var} = "$content";
-                print "setenv $var = $content\n" if($verbose);
-            }
-        }
-    }
-    if($use_external_proxy) {
-        $ENV{http_proxy} = $proxy_address;
-        $ENV{HTTPS_PROXY} = $proxy_address;
-    }
-}
-
-
-#######################################################################
-# Check that test environment is fine to run this test case
-sub singletest_precheck {
-    my $testnum = $_[0];
-    my $why;
-    my @precheck = getpart("client", "precheck");
-    if(@precheck) {
-        my $cmd = $precheck[0];
-        chomp $cmd;
-        if($cmd) {
-            my @p = split(/ /, $cmd);
-            if($p[0] !~ /\//) {
-                # the first word, the command, does not contain a slash so
-                # we will scan the "improved" PATH to find the command to
-                # be able to run it
-                my $fullp = checktestcmd($p[0]);
-
-                if($fullp) {
-                    $p[0] = $fullp;
-                }
-                $cmd = join(" ", @p);
-            }
-
-            my @o = `$cmd 2> $LOGDIR/precheck-$testnum`;
-            if($o[0]) {
-                $why = $o[0];
-                $why =~ s/[\r\n]//g;
-            }
-            elsif($?) {
-                $why = "precheck command error";
-            }
-            logmsg "prechecked $cmd\n" if($verbose);
-        }
-    }
-    return $why;
-}
-
-
-#######################################################################
 # Print the test name and count tests
 sub singletest_count {
     my ($testnum, $why) = @_;
@@ -3821,7 +1064,7 @@ sub singletest_count {
         }
 
         timestampskippedevents($testnum);
-        return ("Skipped", -1);
+        return -1;
     }
 
     # At this point we've committed to run this test
@@ -3835,354 +1078,6 @@ sub singletest_count {
     if($listonly) {
         timestampskippedevents($testnum);
     }
-    return ("", 0);  # successful
-}
-
-
-#######################################################################
-# Prepare the test environment to run this test case
-sub singletest_prepare {
-    my ($testnum, $why) = @_;
-
-    if($feature{"TrackMemory"}) {
-        unlink($memdump);
-    }
-    unlink("core");
-
-    # if this section exists, it might be FTP server instructions:
-    my @ftpservercmd = getpart("reply", "servercmd");
-    push @ftpservercmd, "Testnum $testnum\n";
-    # write the instructions to file
-    writearray($FTPDCMD, \@ftpservercmd);
-
-    # create (possibly-empty) files before starting the test
-    for my $partsuffix (('', '1', '2', '3', '4')) {
-        my @inputfile=getpart("client", "file".$partsuffix);
-        my %fileattr = getpartattr("client", "file".$partsuffix);
-        my $filename=$fileattr{'name'};
-        if(@inputfile || $filename) {
-            if(!$filename) {
-                logmsg "ERROR: section client=>file has no name attribute\n";
-                timestampskippedevents($testnum);
-                return ("Syntax error", -1);
-            }
-            my $fileContent = join('', @inputfile);
-
-            # make directories if needed
-            my $path = $filename;
-            # cut off the file name part
-            $path =~ s/^(.*)\/[^\/]*/$1/;
-            my @parts = split(/\//, $path);
-            if($parts[0] eq $LOGDIR) {
-                # the file is in $LOGDIR/
-                my $d = shift @parts;
-                for(@parts) {
-                    $d .= "/$_";
-                    mkdir $d; # 0777
-                }
-            }
-            if (open(my $outfile, ">", "$filename")) {
-                binmode $outfile; # for crapage systems, use binary
-                if($fileattr{'nonewline'}) {
-                    # cut off the final newline
-                    chomp($fileContent);
-                }
-                print $outfile $fileContent;
-                close($outfile);
-            } else {
-                logmsg "ERROR: cannot write $filename\n";
-            }
-        }
-    }
-    return ($why, 0);
-}
-
-
-#######################################################################
-# Run the test command
-sub singletest_run {
-    my $testnum = $_[0];
-
-    # get the command line options to use
-    my ($cmd, @blaha)= getpart("client", "command");
-    if($cmd) {
-        # make some nice replace operations
-        $cmd =~ s/\n//g; # no newlines please
-        # substitute variables in the command line
-    }
-    else {
-        # there was no command given, use something silly
-        $cmd="-";
-    }
-
-    my $CURLOUT="$LOGDIR/curl$testnum.out"; # curl output if not stdout
-
-    # if stdout section exists, we verify that the stdout contained this:
-    my $out="";
-    my %cmdhash = getpartattr("client", "command");
-    if((!$cmdhash{'option'}) || ($cmdhash{'option'} !~ /no-output/)) {
-        #We may slap on --output!
-        if (!partexists("verify", "stdout") ||
-                ($cmdhash{'option'} && $cmdhash{'option'} =~ /force-output/)) {
-            $out=" --output $CURLOUT ";
-        }
-    }
-
-    # redirected stdout/stderr to these files
-    $STDOUT="$LOGDIR/stdout$testnum";
-    $STDERR="$LOGDIR/stderr$testnum";
-
-    my @codepieces = getpart("client", "tool");
-    my $tool="";
-    if(@codepieces) {
-        $tool = $codepieces[0];
-        chomp $tool;
-        $tool .= exe_ext('TOOL');
-    }
-
-    my $disablevalgrind;
-    my $CMDLINE;
-    my $cmdargs;
-    my $cmdtype = $cmdhash{'type'} || "default";
-    my $fail_due_event_based = $run_event_based;
-    if($cmdtype eq "perl") {
-        # run the command line prepended with "perl"
-        $cmdargs ="$cmd";
-        $CMDLINE = "$perl ";
-        $tool=$CMDLINE;
-        $disablevalgrind=1;
-    }
-    elsif($cmdtype eq "shell") {
-        # run the command line prepended with "/bin/sh"
-        $cmdargs ="$cmd";
-        $CMDLINE = "/bin/sh ";
-        $tool=$CMDLINE;
-        $disablevalgrind=1;
-    }
-    elsif(!$tool && !$keywords{"unittest"}) {
-        # run curl, add suitable command line options
-        my $inc="";
-        if((!$cmdhash{'option'}) || ($cmdhash{'option'} !~ /no-include/)) {
-            $inc = " --include";
-        }
-        $cmdargs = "$out$inc ";
-
-        if($cmdhash{'option'} && ($cmdhash{'option'} =~ /binary-trace/)) {
-            $cmdargs .= "--trace $LOGDIR/trace$testnum ";
-        }
-        else {
-            $cmdargs .= "--trace-ascii $LOGDIR/trace$testnum ";
-        }
-        $cmdargs .= "--trace-time ";
-        if($run_event_based) {
-            $cmdargs .= "--test-event ";
-            $fail_due_event_based--;
-        }
-        $cmdargs .= $cmd;
-        if ($use_external_proxy) {
-            $cmdargs .= " --proxy $proxy_address ";
-        }
-    }
-    else {
-        $cmdargs = " $cmd"; # $cmd is the command line for the test file
-        $CURLOUT = $STDOUT; # sends received data to stdout
-
-        # Default the tool to a unit test with the same name as the test spec
-        if($keywords{"unittest"} && !$tool) {
-            $tool="unit$testnum";
-        }
-
-        if($tool =~ /^lib/) {
-            $CMDLINE="$LIBDIR/$tool";
-        }
-        elsif($tool =~ /^unit/) {
-            $CMDLINE="$UNITDIR/$tool";
-        }
-
-        if(! -f $CMDLINE) {
-            logmsg "The tool set in the test case for this: '$tool' does not exist\n";
-            timestampskippedevents($testnum);
-            return (-1, 0, 0, "", "", 0);
-        }
-        $DBGCURL=$CMDLINE;
-    }
-
-    if($fail_due_event_based) {
-        logmsg "This test cannot run event based\n";
-        timestampskippedevents($testnum);
-        return (-1, 0, 0, "", "", 0);
-    }
-
-    if($gdbthis) {
-        # gdb is incompatible with valgrind, so disable it when debugging
-        # Perhaps a better approach would be to run it under valgrind anyway
-        # with --db-attach=yes or --vgdb=yes.
-        $disablevalgrind=1;
-    }
-
-    my @stdintest = getpart("client", "stdin");
-
-    if(@stdintest) {
-        my $stdinfile="$LOGDIR/stdin-for-$testnum";
-
-        my %hash = getpartattr("client", "stdin");
-        if($hash{'nonewline'}) {
-            # cut off the final newline from the final line of the stdin data
-            chomp($stdintest[-1]);
-        }
-
-        writearray($stdinfile, \@stdintest);
-
-        $cmdargs .= " <$stdinfile";
-    }
-
-    if(!$tool) {
-        $CMDLINE="$CURL";
-    }
-
-    if(use_valgrind() && !$disablevalgrind) {
-        my $valgrindcmd = "$valgrind ";
-        $valgrindcmd .= "$valgrind_tool " if($valgrind_tool);
-        $valgrindcmd .= "--quiet --leak-check=yes ";
-        $valgrindcmd .= "--suppressions=$srcdir/valgrind.supp ";
-        # $valgrindcmd .= "--gen-suppressions=all ";
-        $valgrindcmd .= "--num-callers=16 ";
-        $valgrindcmd .= "${valgrind_logfile}=$LOGDIR/valgrind$testnum";
-        $CMDLINE = "$valgrindcmd $CMDLINE";
-    }
-
-    $CMDLINE .= "$cmdargs >$STDOUT 2>$STDERR";
-
-    if($verbose) {
-        logmsg "$CMDLINE\n";
-    }
-
-    open(my $cmdlog, ">", $CURLLOG) || die "Failure writing log file";
-    print $cmdlog "$CMDLINE\n";
-    close($cmdlog) || die "Failure writing log file";
-
-    my $dumped_core;
-    my $cmdres;
-
-    if($gdbthis) {
-        my $gdbinit = "$TESTDIR/gdbinit$testnum";
-        open(my $gdbcmd, ">", "$LOGDIR/gdbcmd") || die "Failure writing gdb file";
-        print $gdbcmd "set args $cmdargs\n";
-        print $gdbcmd "show args\n";
-        print $gdbcmd "source $gdbinit\n" if -e $gdbinit;
-        close($gdbcmd) || die "Failure writing gdb file";
-    }
-
-    # Flush output.
-    $| = 1;
-
-    # timestamp starting of test command
-    $timetoolini{$testnum} = Time::HiRes::time();
-
-    # run the command line we built
-    if ($torture) {
-        $cmdres = torture($CMDLINE,
-                          $testnum,
-                          "$gdb --directory $LIBDIR $DBGCURL -x $LOGDIR/gdbcmd");
-    }
-    elsif($gdbthis) {
-        my $GDBW = ($gdbxwin) ? "-w" : "";
-        runclient("$gdb --directory $LIBDIR $DBGCURL $GDBW -x $LOGDIR/gdbcmd");
-        $cmdres=0; # makes it always continue after a debugged run
-    }
-    else {
-        # Convert the raw result code into a more useful one
-        ($cmdres, $dumped_core) = normalize_cmdres(runclient("$CMDLINE"));
-    }
-
-    # timestamp finishing of test command
-    $timetoolend{$testnum} = Time::HiRes::time();
-
-    return (0, $cmdres, $dumped_core, $CURLOUT, $tool, $disablevalgrind);
-}
-
-
-#######################################################################
-# Clean up after test command
-sub singletest_clean {
-    my ($testnum, $dumped_core)=@_;
-
-    if(!$dumped_core) {
-        if(-r "core") {
-            # there's core file present now!
-            $dumped_core = 1;
-        }
-    }
-
-    if($dumped_core) {
-        logmsg "core dumped\n";
-        if(0 && $gdb) {
-            logmsg "running gdb for post-mortem analysis:\n";
-            open(my $gdbcmd, ">", "$LOGDIR/gdbcmd2") || die "Failure writing gdb file";
-            print $gdbcmd "bt\n";
-            close($gdbcmd) || die "Failure writing gdb file";
-            runclient("$gdb --directory libtest -x $LOGDIR/gdbcmd2 -batch $DBGCURL core ");
-     #       unlink("$LOGDIR/gdbcmd2");
-        }
-    }
-
-    # If a server logs advisor read lock file exists, it is an indication
-    # that the server has not yet finished writing out all its log files,
-    # including server request log files used for protocol verification.
-    # So, if the lock file exists the script waits here a certain amount
-    # of time until the server removes it, or the given time expires.
-    my $serverlogslocktimeout = $defserverlogslocktimeout;
-    my %cmdhash = getpartattr("client", "command");
-    if($cmdhash{'timeout'}) {
-        # test is allowed to override default server logs lock timeout
-        if($cmdhash{'timeout'} =~ /(\d+)/) {
-            $serverlogslocktimeout = $1 if($1 >= 0);
-        }
-    }
-    if($serverlogslocktimeout) {
-        my $lockretry = $serverlogslocktimeout * 20;
-        while((-f $SERVERLOGS_LOCK) && $lockretry--) {
-            portable_sleep(0.05);
-        }
-        if(($lockretry < 0) &&
-           ($serverlogslocktimeout >= $defserverlogslocktimeout)) {
-            logmsg "Warning: server logs lock timeout ",
-                   "($serverlogslocktimeout seconds) expired\n";
-        }
-    }
-
-    # Test harness ssh server does not have this synchronization mechanism,
-    # this implies that some ssh server based tests might need a small delay
-    # once that the client command has run to avoid false test failures.
-    #
-    # gnutls-serv also lacks this synchronization mechanism, so gnutls-serv
-    # based tests might need a small delay once that the client command has
-    # run to avoid false test failures.
-    my $postcommanddelay = $defpostcommanddelay;
-    if($cmdhash{'delay'}) {
-        # test is allowed to specify a delay after command is executed
-        if($cmdhash{'delay'} =~ /(\d+)/) {
-            $postcommanddelay = $1 if($1 > 0);
-        }
-    }
-
-    portable_sleep($postcommanddelay) if($postcommanddelay);
-
-    # timestamp removal of server logs advisor read lock
-    $timesrvrlog{$testnum} = Time::HiRes::time();
-
-    # test definition might instruct to stop some servers
-    # stop also all servers relative to the given one
-
-    my @killtestservers = getpart("client", "killserver");
-    if(@killtestservers) {
-        foreach my $server (@killtestservers) {
-            chomp $server;
-            if(stopserver($server)) {
-                return 1; # normal error if asked to fail on unexpected alive
-            }
-        }
-    }
     return 0;
 }
 
@@ -4190,29 +1085,7 @@ sub singletest_clean {
 #######################################################################
 # Verify test succeeded
 sub singletest_check {
-    my ($testnum, $cmdres, $CURLOUT, $tool, $disablevalgrind)=@_;
-
-    # run the postcheck command
-    my @postcheck= getpart("client", "postcheck");
-    if(@postcheck) {
-        my $cmd = join("", @postcheck);
-        chomp $cmd;
-        if($cmd) {
-            logmsg "postcheck $cmd\n" if($verbose);
-            my $rc = runclient("$cmd");
-            # Must run the postcheck command in torture mode in order
-            # to clean up, but the result can't be relied upon.
-            if($rc != 0 && !$torture) {
-                logmsg " postcheck FAILED\n";
-                # timestamp test result verification end
-                $timevrfyend{$testnum} = Time::HiRes::time();
-                return -1;
-            }
-        }
-    }
-
-    # restore environment variables that were modified
-    restore_test_env(0);
+    my ($runnerid, $testnum, $cmdres, $CURLOUT, $tool, $usedvalgrind)=@_;
 
     # Skip all the verification on torture tests
     if ($torture) {
@@ -4221,6 +1094,7 @@ sub singletest_check {
         return -2;
     }
 
+    my $logdir = getlogdir($testnum);
     my @err = getpart("verify", "errorcode");
     my $errorcode = $err[0] || "0";
     my $ok="";
@@ -4234,7 +1108,7 @@ sub singletest_check {
     my @validstdout = getpart("verify", "stdout");
     if (@validstdout) {
         # verify redirected stdout
-        my @actual = loadarray($STDOUT);
+        my @actual = loadarray(stdoutfilename($logdir, $testnum));
 
         foreach my $strip (@stripfile) {
             chomp $strip;
@@ -4270,7 +1144,7 @@ sub singletest_check {
         if($hash{'crlf'} ||
            ($feature{"hyper"} && ($keywords{"HTTP"}
                            || $keywords{"HTTPS"}))) {
-            subNewlines(0, \$_) for @validstdout;
+            subnewlines(0, \$_) for @validstdout;
         }
 
         $res = compare($testnum, $testname, "stdout", \@actual, \@validstdout);
@@ -4286,7 +1160,7 @@ sub singletest_check {
     my @validstderr = getpart("verify", "stderr");
     if (@validstderr) {
         # verify redirected stderr
-        my @actual = loadarray($STDERR);
+        my @actual = loadarray(stderrfilename($logdir, $testnum));
 
         foreach my $strip (@stripfile) {
             chomp $strip;
@@ -4345,7 +1219,7 @@ sub singletest_check {
     my @protocol= getpart("verify", "protocol");
     if(@protocol) {
         # Verify the sent request
-        my @out = loadarray($SERVERIN);
+        my @out = loadarray("$logdir/$SERVERIN");
 
         # check if there's any attributes on the verify/protocol section
         my %hash = getpartattr("verify", "protocol");
@@ -4371,12 +1245,12 @@ sub singletest_check {
         }
 
         if($hash{'crlf'}) {
-            subNewlines(1, \$_) for @protocol;
+            subnewlines(1, \$_) for @protocol;
         }
 
         if((!$out[0] || ($out[0] eq "")) && $protocol[0]) {
             logmsg "\n $testnum: protocol FAILED!\n".
-                " There was no content at all in the file $SERVERIN.\n".
+                " There was no content at all in the file $logdir/$SERVERIN.\n".
                 " Server glitch? Total curl failure? Returned: $cmdres\n";
             # timestamp test result verification end
             $timevrfyend{$testnum} = Time::HiRes::time();
@@ -4417,7 +1291,7 @@ sub singletest_check {
                 if($replycheckpartattr{'crlf'} ||
                    ($feature{"hyper"} && ($keywords{"HTTP"}
                                    || $keywords{"HTTPS"}))) {
-                    subNewlines(0, \$_) for @replycheckpart;
+                    subnewlines(0, \$_) for @replycheckpart;
                 }
                 push(@reply, @replycheckpart);
             }
@@ -4442,7 +1316,7 @@ sub singletest_check {
         if($replyattr{'crlf'} ||
            ($feature{"hyper"} && ($keywords{"HTTP"}
                            || $keywords{"HTTPS"}))) {
-            subNewlines(0, \$_) for @reply;
+            subnewlines(0, \$_) for @reply;
         }
     }
 
@@ -4469,7 +1343,7 @@ sub singletest_check {
         }
 
         # verify uploaded data
-        my @out = loadarray("$LOGDIR/upload.$testnum");
+        my @out = loadarray("$logdir/upload.$testnum");
         for my $strip (@strippart) {
             chomp $strip;
             for(@out) {
@@ -4500,7 +1374,7 @@ sub singletest_check {
             chomp($proxyprot[-1]);
         }
 
-        my @out = loadarray($PROXYIN);
+        my @out = loadarray("$logdir/$PROXYIN");
         for(@strip) {
             # strip off all lines that match the patterns from both arrays
             chomp $_;
@@ -4517,7 +1391,7 @@ sub singletest_check {
 
         if($hash{'crlf'} ||
            ($feature{"hyper"} && ($keywords{"HTTP"} || $keywords{"HTTPS"}))) {
-            subNewlines(0, \$_) for @proxyprot;
+            subnewlines(0, \$_) for @proxyprot;
         }
 
         $res = compare($testnum, $testname, "proxy", \@out, \@proxyprot);
@@ -4543,7 +1417,12 @@ sub singletest_check {
             if(!$filename) {
                 logmsg "ERROR: section verify=>file$partsuffix ".
                        "has no name attribute\n";
-                stopservers($verbose);
+                runnerac_stopservers($runnerid);
+                # TODO: this is a blocking call that will stall the controller,
+                # but this error condition should never happen except during
+                # development.
+                my ($rid, $unexpected, $logs) = runnerar($runnerid);
+                logmsg $logs;
                 # timestamp test result verification end
                 $timevrfyend{$testnum} = Time::HiRes::time();
                 return -1;
@@ -4562,7 +1441,7 @@ sub singletest_check {
             if($hash{'crlf'} ||
                ($feature{"hyper"} && ($keywords{"HTTP"}
                                || $keywords{"HTTPS"}))) {
-                subNewlines(0, \$_) for @outfile;
+                subnewlines(0, \$_) for @outfile;
             }
 
             for my $strip (@stripfilepar) {
@@ -4594,7 +1473,7 @@ sub singletest_check {
     my @socksprot = getpart("verify", "socks");
     if(@socksprot) {
         # Verify the sent SOCKS proxy details
-        my @out = loadarray($SOCKSIN);
+        my @out = loadarray("$logdir/$SOCKSIN");
         $res = compare($testnum, $testname, "socks", \@out, \@socksprot);
         if($res) {
             return -1;
@@ -4627,14 +1506,14 @@ sub singletest_check {
     }
 
     if($feature{"TrackMemory"}) {
-        if(! -f $memdump) {
+        if(! -f "$logdir/$MEMDUMP") {
             my %cmdhash = getpartattr("client", "command");
             my $cmdtype = $cmdhash{'type'} || "default";
             logmsg "\n** ALERT! memory tracking with no output file?\n"
                 if(!$cmdtype eq "perl");
         }
         else {
-            my @memdata=`$memanalyze $memdump`;
+            my @memdata=`$memanalyze "$logdir/$MEMDUMP"`;
             my $leak=0;
             for(@memdata) {
                 if($_ ne "") {
@@ -4660,9 +1539,9 @@ sub singletest_check {
     }
 
     if($valgrind) {
-        if(use_valgrind() && !$disablevalgrind) {
-            if(!opendir(DIR, "$LOGDIR")) {
-                logmsg "ERROR: unable to read $LOGDIR\n";
+        if($usedvalgrind) {
+            if(!opendir(DIR, "$logdir")) {
+                logmsg "ERROR: unable to read $logdir\n";
                 # timestamp test result verification end
                 $timevrfyend{$testnum} = Time::HiRes::time();
                 return -1;
@@ -4682,7 +1561,7 @@ sub singletest_check {
                 $timevrfyend{$testnum} = Time::HiRes::time();
                 return -1;
             }
-            my @e = valgrindparse("$LOGDIR/$vgfile");
+            my @e = valgrindparse("$logdir/$vgfile");
             if(@e && $e[0]) {
                 if($automakestyle) {
                     logmsg "FAIL: $testnum - $testname - valgrind\n";
@@ -4698,7 +1577,7 @@ sub singletest_check {
             $ok .= "v";
         }
         else {
-            if($verbose && !$disablevalgrind) {
+            if($verbose) {
                 logmsg " valgrind SKIPPED\n";
             }
             $ok .= "-"; # skipped
@@ -4751,748 +1630,163 @@ sub singletest_success {
 
 #######################################################################
 # Run a single specified test case
+# This is structured as a state machine which changes states after an
+# asynchronous call is made that awaits a response. The function returns with
+# an error code and a flag that indicates if the state machine has completed,
+# which means (if not) the function must be called again once the response has
+# arrived.
 #
 sub singletest {
-    my ($testnum, $count, $total)=@_;
+    my ($runnerid, $testnum, $count, $total)=@_;
 
-    #######################################################################
-    # Verify that the test should be run
-    my ($why, $errorreturncode) = singletest_shouldrun($testnum);
+    if($singletest_state == ST_INIT) {
+        my $logdir = getlogdir($testnum);
+        # first, remove all lingering log files
+        if(!cleardir($logdir) && $clearlocks) {
+            runnerac_clearlocks($runnerid, $logdir);
+            $singletest_state = ST_CLEARLOCKS;
+        } else {
+            $singletest_state = ST_INITED;
+            # Recursively call the state machine again because there is no
+            # event expected that would otherwise trigger a new call.
+            return singletest(@_);
+        }
+
+    } elsif($singletest_state == ST_CLEARLOCKS) {
+        my ($rid, $logs) = runnerar($runnerid);
+        logmsg $logs;
+        my $logdir = getlogdir($testnum);
+        cleardir($logdir);
+        $singletest_state = ST_INITED;
+        # Recursively call the state machine again because there is no
+        # event expected that would otherwise trigger a new call.
+        return singletest(@_);
+
+    } elsif($singletest_state == ST_INITED) {
+        ###################################################################
+        # Restore environment variables that were modified in a previous run.
+        # Test definition may instruct to (un)set environment vars.
+        # This is done this early so that leftover variables don't affect
+        # starting servers or CI registration.
+        # restore_test_env(1);
+
+        ###################################################################
+        # Load test file so CI registration can get the right data before the
+        # runner is called
+        loadtest("${TESTDIR}/test${testnum}");
+
+        ###################################################################
+        # Register the test case with the CI environment
+        citest_starttest($testnum);
+
+        runnerac_test_preprocess($runnerid, $testnum);
+        $singletest_state = ST_PREPROCESS;
+
+    } elsif($singletest_state == ST_PREPROCESS) {
+        my ($rid, $why, $error, $logs, $testtimings) = runnerar($runnerid);
+        logmsg $logs;
+        if($error == -2) {
+            if($postmortem) {
+                # Error indicates an actual problem starting the server, so
+                # display the server logs
+                displaylogs($testnum);
+            }
+        }
+        updatetesttimings($testnum, %$testtimings);
+
+        #######################################################################
+        # Load test file for this test number
+        my $logdir = getlogdir($testnum);
+        loadtest("${logdir}/test${testnum}");
+
+        #######################################################################
+        # Print the test name and count tests
+        $error = singletest_count($testnum, $why);
+        if($error) {
+            # Submit the test case result with the CI environment
+            citest_finishtest($testnum, $error);
+            $singletest_state = ST_INIT;
+            return ($error, 0);
+        }
+
+        #######################################################################
+        # Execute this test number
+        my $cmdres;
+        my $CURLOUT;
+        my $tool;
+        my $usedvalgrind;
+        runnerac_test_run($runnerid, $testnum);
+        $singletest_state = ST_RUN;
+
+    } elsif($singletest_state == ST_RUN) {
+        my ($rid, $error, $logs, $testtimings, $cmdres, $CURLOUT, $tool, $usedvalgrind) = runnerar($runnerid);
+        logmsg $logs;
+        updatetesttimings($testnum, %$testtimings);
+        if($error == -1) {
+            # no further verification will occur
+            $timevrfyend{$testnum} = Time::HiRes::time();
+            my $err = ignoreresultcode($testnum);
+            # Submit the test case result with the CI environment
+            citest_finishtest($testnum, $err);
+            $singletest_state = ST_INIT;
+            # return a test failure, either to be reported or to be ignored
+            return ($err, 0);
+        }
+        elsif($error == -2) {
+            # fill in the missing timings on error
+            timestampskippedevents($testnum);
+            # Submit the test case result with the CI environment
+            citest_finishtest($testnum, $error);
+            $singletest_state = ST_INIT;
+            return ($error, 0);
+        }
+        elsif($error > 0) {
+            # no further verification will occur
+            $timevrfyend{$testnum} = Time::HiRes::time();
+            # Submit the test case result with the CI environment
+            citest_finishtest($testnum, $error);
+            $singletest_state = ST_INIT;
+            return ($error, 0);
+        }
+
+        #######################################################################
+        # Verify that the test succeeded
+        #
+        # Load test file for this test number
+        my $logdir = getlogdir($testnum);
+        loadtest("${logdir}/test${testnum}");
+        readtestkeywords();
+
+        $error = singletest_check($runnerid, $testnum, $cmdres, $CURLOUT, $tool, $usedvalgrind);
+        if($error == -1) {
+            my $err = ignoreresultcode($testnum);
+            # Submit the test case result with the CI environment
+            citest_finishtest($testnum, $err);
+            $singletest_state = ST_INIT;
+            # return a test failure, either to be reported or to be ignored
+            return ($err, 0);
+        }
+        elsif($error == -2) {
+            # torture test; there is no verification, so the run result holds the
+            # test success code
+            # Submit the test case result with the CI environment
+            citest_finishtest($testnum, $cmdres);
+            $singletest_state = ST_INIT;
+            return ($cmdres, 0);
+        }
 
 
-    #######################################################################
-    # Restore environment variables that were modified in a previous run.
-    # Test definition may instruct to (un)set environment vars.
-    # This is done this early so that leftover variables don't affect starting
-    # servers.
-    restore_test_env(1);
+        #######################################################################
+        # Report a successful test
+        singletest_success($testnum, $count, $total, ignoreresultcode($testnum));
 
+        # Submit the test case result with the CI environment
+        citest_finishtest($testnum, 0);
+        $singletest_state = ST_INIT;
 
-    #######################################################################
-    # Register the test case with the CI environment
-    citest_starttest($testnum);
-
-
-    #######################################################################
-    # Start the servers needed to run this test case
-    $why = singletest_startservers($testnum, $why);
-
-
-    #######################################################################
-    # Generate preprocessed test file
-    singletest_preprocess($testnum);
-
-
-    #######################################################################
-    # Set up the test environment to run this test case
-    singletest_setenv();
-
-
-    #######################################################################
-    # Check that the test environment is fine to run this test case
-    if (!$why && !$listonly) {
-        $why = singletest_precheck($testnum);
+        return (0, 0);  # state machine is finished
     }
-
-
-    #######################################################################
-    # Print the test name and count tests
-    my $error;
-    ($why, $error) = singletest_count($testnum, $why);
-    if($error || $listonly) {
-        return $error;
-    }
-
-
-    #######################################################################
-    # Prepare the test environment to run this test case
-    ($why, $error) = singletest_prepare($testnum, $why);
-    if($error) {
-        return $error;
-    }
-
-
-    #######################################################################
-    # Run the test command
-    my $cmdres;
-    my $dumped_core;
-    my $CURLOUT;
-    my $tool;
-    my $disablevalgrind;
-    ($error, $cmdres, $dumped_core, $CURLOUT, $tool, $disablevalgrind) = singletest_run($testnum);
-    if($error) {
-        return $error;
-    }
-
-
-    #######################################################################
-    # Clean up after test command
-    $error = singletest_clean($testnum, $dumped_core);
-    if($error) {
-        return $error;
-    }
-
-
-    #######################################################################
-    # Verify that the test succeeded
-    $error = singletest_check($testnum, $cmdres, $CURLOUT, $tool, $disablevalgrind);
-    if($error == -1) {
-      # return a test failure, either to be reported or to be ignored
-      return $errorreturncode;
-    }
-    elsif($error == -2) {
-      # torture test; there is no verification, so the run result holds the
-      # test success code
-      return $cmdres;
-    }
-
-    #######################################################################
-    # Report a successful test
-    singletest_success($testnum, $count, $total, $errorreturncode);
-
-
-    return 0;
-}
-
-#######################################################################
-# Stop all running test servers
-#
-sub stopservers {
-    my $verb = $_[0];
-    #
-    # kill sockfilter processes for all pingpong servers
-    #
-    killallsockfilters($PIDDIR, $verb);
-    #
-    # kill all server pids from %run hash clearing them
-    #
-    my $pidlist;
-    foreach my $server (keys %run) {
-        if($run{$server}) {
-            if($verb) {
-                my $prev = 0;
-                my $pids = $run{$server};
-                foreach my $pid (split(' ', $pids)) {
-                    if($pid != $prev) {
-                        logmsg sprintf("* kill pid for %s => %d\n",
-                            $server, $pid);
-                        $prev = $pid;
-                    }
-                }
-            }
-            $pidlist .= "$run{$server} ";
-            $run{$server} = 0;
-        }
-        $runcert{$server} = 0 if($runcert{$server});
-    }
-    killpid($verb, $pidlist);
-    #
-    # cleanup all server pid files
-    #
-    my $result = 0;
-    foreach my $server (keys %serverpidfile) {
-        my $pidfile = $serverpidfile{$server};
-        my $pid = processexists($pidfile);
-        if($pid > 0) {
-            if($err_unexpected) {
-                logmsg "ERROR: ";
-                $result = -1;
-            }
-            else {
-                logmsg "Warning: ";
-            }
-            logmsg "$server server unexpectedly alive\n";
-            killpid($verb, $pid);
-        }
-        unlink($pidfile) if(-f $pidfile);
-    }
-
-    return $result;
-}
-
-#######################################################################
-# startservers() starts all the named servers
-#
-# Returns: string with error reason or blank for success
-#
-sub startservers {
-    my @what = @_;
-    my ($pid, $pid2);
-    for(@what) {
-        my (@whatlist) = split(/\s+/,$_);
-        my $what = lc($whatlist[0]);
-        $what =~ s/[^a-z0-9\/-]//g;
-
-        my $certfile;
-        if($what =~ /^(ftp|gopher|http|imap|pop3|smtp)s((\d*)(-ipv6|-unix|))$/) {
-            $certfile = ($whatlist[1]) ? $whatlist[1] : 'stunnel.pem';
-        }
-
-        if(($what eq "pop3") ||
-           ($what eq "ftp") ||
-           ($what eq "imap") ||
-           ($what eq "smtp")) {
-            if($torture && $run{$what} &&
-               !responsive_pingpong_server($what, "", $verbose)) {
-                if(stopserver($what)) {
-                    return "failed stopping unresponsive ".uc($what)." server";
-                }
-            }
-            if(!$run{$what}) {
-                ($pid, $pid2) = runpingpongserver($what, "", $verbose);
-                if($pid <= 0) {
-                    return "failed starting ". uc($what) ." server";
-                }
-                printf ("* pid $what => %d %d\n", $pid, $pid2) if($verbose);
-                $run{$what}="$pid $pid2";
-            }
-        }
-        elsif($what eq "ftp-ipv6") {
-            if($torture && $run{'ftp-ipv6'} &&
-               !responsive_pingpong_server("ftp", "", $verbose, "ipv6")) {
-                if(stopserver('ftp-ipv6')) {
-                    return "failed stopping unresponsive FTP-IPv6 server";
-                }
-            }
-            if(!$run{'ftp-ipv6'}) {
-                ($pid, $pid2) = runpingpongserver("ftp", "", $verbose, "ipv6");
-                if($pid <= 0) {
-                    return "failed starting FTP-IPv6 server";
-                }
-                logmsg sprintf("* pid ftp-ipv6 => %d %d\n", $pid,
-                       $pid2) if($verbose);
-                $run{'ftp-ipv6'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "gopher") {
-            if($torture && $run{'gopher'} &&
-               !responsive_http_server("gopher", $verbose, 0,
-                                       protoport("gopher"))) {
-                if(stopserver('gopher')) {
-                    return "failed stopping unresponsive GOPHER server";
-                }
-            }
-            if(!$run{'gopher'}) {
-                ($pid, $pid2, $PORT{'gopher'}) =
-                    runhttpserver("gopher", $verbose, 0);
-                if($pid <= 0) {
-                    return "failed starting GOPHER server";
-                }
-                logmsg sprintf ("* pid gopher => %d %d\n", $pid, $pid2)
-                    if($verbose);
-                $run{'gopher'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "gopher-ipv6") {
-            if($torture && $run{'gopher-ipv6'} &&
-               !responsive_http_server("gopher", $verbose, "ipv6",
-                                       protoport("gopher"))) {
-                if(stopserver('gopher-ipv6')) {
-                    return "failed stopping unresponsive GOPHER-IPv6 server";
-                }
-            }
-            if(!$run{'gopher-ipv6'}) {
-                ($pid, $pid2, $PORT{"gopher6"}) =
-                    runhttpserver("gopher", $verbose, "ipv6");
-                if($pid <= 0) {
-                    return "failed starting GOPHER-IPv6 server";
-                }
-                logmsg sprintf("* pid gopher-ipv6 => %d %d\n", $pid,
-                               $pid2) if($verbose);
-                $run{'gopher-ipv6'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "http/3") {
-            if(!$run{'http/3'}) {
-                ($pid, $pid2, $PORT{"http3"}) = runhttp3server($verbose);
-                if($pid <= 0) {
-                    return "failed starting HTTP/3 server";
-                }
-                logmsg sprintf ("* pid http/3 => %d %d\n", $pid, $pid2)
-                    if($verbose);
-                $run{'http/3'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "http/2") {
-            if(!$run{'http/2'}) {
-                ($pid, $pid2, $PORT{"http2"}, $PORT{"http2tls"}) =
-                    runhttp2server($verbose);
-                if($pid <= 0) {
-                    return "failed starting HTTP/2 server";
-                }
-                logmsg sprintf ("* pid http/2 => %d %d\n", $pid, $pid2)
-                    if($verbose);
-                $run{'http/2'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "http") {
-            if($torture && $run{'http'} &&
-               !responsive_http_server("http", $verbose, 0, protoport('http'))) {
-                if(stopserver('http')) {
-                    return "failed stopping unresponsive HTTP server";
-                }
-            }
-            if(!$run{'http'}) {
-                ($pid, $pid2, $PORT{'http'}) =
-                    runhttpserver("http", $verbose, 0);
-                if($pid <= 0) {
-                    return "failed starting HTTP server";
-                }
-                logmsg sprintf ("* pid http => %d %d\n", $pid, $pid2)
-                    if($verbose);
-                $run{'http'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "http-proxy") {
-            if($torture && $run{'http-proxy'} &&
-               !responsive_http_server("http", $verbose, "proxy",
-                                       protoport("httpproxy"))) {
-                if(stopserver('http-proxy')) {
-                    return "failed stopping unresponsive HTTP-proxy server";
-                }
-            }
-            if(!$run{'http-proxy'}) {
-                ($pid, $pid2, $PORT{"httpproxy"}) =
-                    runhttpserver("http", $verbose, "proxy");
-                if($pid <= 0) {
-                    return "failed starting HTTP-proxy server";
-                }
-                logmsg sprintf ("* pid http-proxy => %d %d\n", $pid, $pid2)
-                    if($verbose);
-                $run{'http-proxy'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "http-ipv6") {
-            if($torture && $run{'http-ipv6'} &&
-               !responsive_http_server("http", $verbose, "ipv6",
-                                       protoport("http6"))) {
-                if(stopserver('http-ipv6')) {
-                    return "failed stopping unresponsive HTTP-IPv6 server";
-                }
-            }
-            if(!$run{'http-ipv6'}) {
-                ($pid, $pid2, $PORT{"http6"}) =
-                    runhttpserver("http", $verbose, "ipv6");
-                if($pid <= 0) {
-                    return "failed starting HTTP-IPv6 server";
-                }
-                logmsg sprintf("* pid http-ipv6 => %d %d\n", $pid, $pid2)
-                    if($verbose);
-                $run{'http-ipv6'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "rtsp") {
-            if($torture && $run{'rtsp'} &&
-               !responsive_rtsp_server($verbose)) {
-                if(stopserver('rtsp')) {
-                    return "failed stopping unresponsive RTSP server";
-                }
-            }
-            if(!$run{'rtsp'}) {
-                ($pid, $pid2, $PORT{'rtsp'}) = runrtspserver($verbose);
-                if($pid <= 0) {
-                    return "failed starting RTSP server";
-                }
-                printf ("* pid rtsp => %d %d\n", $pid, $pid2) if($verbose);
-                $run{'rtsp'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "rtsp-ipv6") {
-            if($torture && $run{'rtsp-ipv6'} &&
-               !responsive_rtsp_server($verbose, "ipv6")) {
-                if(stopserver('rtsp-ipv6')) {
-                    return "failed stopping unresponsive RTSP-IPv6 server";
-                }
-            }
-            if(!$run{'rtsp-ipv6'}) {
-                ($pid, $pid2, $PORT{'rtsp6'}) = runrtspserver($verbose, "ipv6");
-                if($pid <= 0) {
-                    return "failed starting RTSP-IPv6 server";
-                }
-                logmsg sprintf("* pid rtsp-ipv6 => %d %d\n", $pid, $pid2)
-                    if($verbose);
-                $run{'rtsp-ipv6'}="$pid $pid2";
-            }
-        }
-        elsif($what =~ /^(ftp|imap|pop3|smtp)s$/) {
-            my $cproto = $1;
-            if(!$stunnel) {
-                # we can't run ftps tests without stunnel
-                return "no stunnel";
-            }
-            if($runcert{$what} && ($runcert{$what} ne $certfile)) {
-                # stop server when running and using a different cert
-                if(stopserver($what)) {
-                    return "failed stopping $what server with different cert";
-                }
-            }
-            if($torture && $run{$cproto} &&
-               !responsive_pingpong_server($cproto, "", $verbose)) {
-                if(stopserver($cproto)) {
-                    return "failed stopping unresponsive $cproto server";
-                }
-            }
-            if(!$run{$cproto}) {
-                ($pid, $pid2) = runpingpongserver($cproto, "", $verbose);
-                if($pid <= 0) {
-                    return "failed starting $cproto server";
-                }
-                printf ("* pid $cproto => %d %d\n", $pid, $pid2) if($verbose);
-                $run{$cproto}="$pid $pid2";
-            }
-            if(!$run{$what}) {
-                ($pid, $pid2, $PORT{$what}) =
-                    runsecureserver($verbose, "", $certfile, $what,
-                                    protoport($cproto));
-                if($pid <= 0) {
-                    return "failed starting $what server (stunnel)";
-                }
-                logmsg sprintf("* pid $what => %d %d\n", $pid, $pid2)
-                    if($verbose);
-                $run{$what}="$pid $pid2";
-            }
-        }
-        elsif($what eq "file") {
-            # we support it but have no server!
-        }
-        elsif($what eq "https") {
-            if(!$stunnel) {
-                # we can't run https tests without stunnel
-                return "no stunnel";
-            }
-            if($runcert{'https'} && ($runcert{'https'} ne $certfile)) {
-                # stop server when running and using a different cert
-                if(stopserver('https')) {
-                    return "failed stopping HTTPS server with different cert";
-                }
-            }
-            if($torture && $run{'http'} &&
-               !responsive_http_server("http", $verbose, 0,
-                                       protoport('http'))) {
-                if(stopserver('http')) {
-                    return "failed stopping unresponsive HTTP server";
-                }
-            }
-            if(!$run{'http'}) {
-                ($pid, $pid2, $PORT{'http'}) =
-                    runhttpserver("http", $verbose, 0);
-                if($pid <= 0) {
-                    return "failed starting HTTP server";
-                }
-                printf ("* pid http => %d %d\n", $pid, $pid2) if($verbose);
-                $run{'http'}="$pid $pid2";
-            }
-            if(!$run{'https'}) {
-                ($pid, $pid2, $PORT{'https'}) =
-                    runhttpsserver($verbose, "https", "", $certfile);
-                if($pid <= 0) {
-                    return "failed starting HTTPS server (stunnel)";
-                }
-                logmsg sprintf("* pid https => %d %d\n", $pid, $pid2)
-                    if($verbose);
-                $run{'https'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "gophers") {
-            if(!$stunnel) {
-                # we can't run TLS tests without stunnel
-                return "no stunnel";
-            }
-            if($runcert{'gophers'} && ($runcert{'gophers'} ne $certfile)) {
-                # stop server when running and using a different cert
-                if(stopserver('gophers')) {
-                    return "failed stopping GOPHERS server with different crt";
-                }
-            }
-            if($torture && $run{'gopher'} &&
-               !responsive_http_server("gopher", $verbose, 0,
-                                       protoport('gopher'))) {
-                if(stopserver('gopher')) {
-                    return "failed stopping unresponsive GOPHER server";
-                }
-            }
-            if(!$run{'gopher'}) {
-                my $port;
-                ($pid, $pid2, $port) =
-                    runhttpserver("gopher", $verbose, 0);
-                $PORT{'gopher'} = $port;
-                if($pid <= 0) {
-                    return "failed starting GOPHER server";
-                }
-                printf ("* pid gopher => %d %d\n", $pid, $pid2) if($verbose);
-                print "GOPHERPORT => $port\n" if($verbose);
-                $run{'gopher'}="$pid $pid2";
-            }
-            if(!$run{'gophers'}) {
-                my $port;
-                ($pid, $pid2, $port) =
-                    runhttpsserver($verbose, "gophers", "", $certfile);
-                $PORT{'gophers'} = $port;
-                if($pid <= 0) {
-                    return "failed starting GOPHERS server (stunnel)";
-                }
-                logmsg sprintf("* pid gophers => %d %d\n", $pid, $pid2)
-                    if($verbose);
-                print "GOPHERSPORT => $port\n" if($verbose);
-                $run{'gophers'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "https-proxy") {
-            if(!$stunnel) {
-                # we can't run https-proxy tests without stunnel
-                return "no stunnel";
-            }
-            if($runcert{'https-proxy'} &&
-               ($runcert{'https-proxy'} ne $certfile)) {
-                # stop server when running and using a different cert
-                if(stopserver('https-proxy')) {
-                    return "failed stopping HTTPS-proxy with different cert";
-                }
-            }
-
-            # we front the http-proxy with stunnel so we need to make sure the
-            # proxy runs as well
-            my $f = startservers("http-proxy");
-            if($f) {
-                return $f;
-            }
-
-            if(!$run{'https-proxy'}) {
-                ($pid, $pid2, $PORT{"httpsproxy"}) =
-                    runhttpsserver($verbose, "https", "proxy", $certfile);
-                if($pid <= 0) {
-                    return "failed starting HTTPS-proxy (stunnel)";
-                }
-                logmsg sprintf("* pid https-proxy => %d %d\n", $pid, $pid2)
-                    if($verbose);
-                $run{'https-proxy'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "httptls") {
-            if(!$httptlssrv) {
-                # for now, we can't run http TLS-EXT tests without gnutls-serv
-                return "no gnutls-serv (with SRP support)";
-            }
-            if($torture && $run{'httptls'} &&
-               !responsive_httptls_server($verbose, "IPv4")) {
-                if(stopserver('httptls')) {
-                    return "failed stopping unresponsive HTTPTLS server";
-                }
-            }
-            if(!$run{'httptls'}) {
-                ($pid, $pid2, $PORT{'httptls'}) =
-                    runhttptlsserver($verbose, "IPv4");
-                if($pid <= 0) {
-                    return "failed starting HTTPTLS server (gnutls-serv)";
-                }
-                logmsg sprintf("* pid httptls => %d %d\n", $pid, $pid2)
-                    if($verbose);
-                $run{'httptls'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "httptls-ipv6") {
-            if(!$httptlssrv) {
-                # for now, we can't run http TLS-EXT tests without gnutls-serv
-                return "no gnutls-serv";
-            }
-            if($torture && $run{'httptls-ipv6'} &&
-               !responsive_httptls_server($verbose, "ipv6")) {
-                if(stopserver('httptls-ipv6')) {
-                    return "failed stopping unresponsive HTTPTLS-IPv6 server";
-                }
-            }
-            if(!$run{'httptls-ipv6'}) {
-                ($pid, $pid2, $PORT{"httptls6"}) =
-                    runhttptlsserver($verbose, "ipv6");
-                if($pid <= 0) {
-                    return "failed starting HTTPTLS-IPv6 server (gnutls-serv)";
-                }
-                logmsg sprintf("* pid httptls-ipv6 => %d %d\n", $pid, $pid2)
-                    if($verbose);
-                $run{'httptls-ipv6'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "tftp") {
-            if($torture && $run{'tftp'} &&
-               !responsive_tftp_server("", $verbose)) {
-                if(stopserver('tftp')) {
-                    return "failed stopping unresponsive TFTP server";
-                }
-            }
-            if(!$run{'tftp'}) {
-                ($pid, $pid2, $PORT{'tftp'}) =
-                    runtftpserver("", $verbose);
-                if($pid <= 0) {
-                    return "failed starting TFTP server";
-                }
-                printf ("* pid tftp => %d %d\n", $pid, $pid2) if($verbose);
-                $run{'tftp'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "tftp-ipv6") {
-            if($torture && $run{'tftp-ipv6'} &&
-               !responsive_tftp_server("", $verbose, "ipv6")) {
-                if(stopserver('tftp-ipv6')) {
-                    return "failed stopping unresponsive TFTP-IPv6 server";
-                }
-            }
-            if(!$run{'tftp-ipv6'}) {
-                ($pid, $pid2, $PORT{'tftp6'}) =
-                    runtftpserver("", $verbose, "ipv6");
-                if($pid <= 0) {
-                    return "failed starting TFTP-IPv6 server";
-                }
-                printf("* pid tftp-ipv6 => %d %d\n", $pid, $pid2) if($verbose);
-                $run{'tftp-ipv6'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "sftp" || $what eq "scp") {
-            if(!$run{'ssh'}) {
-                ($pid, $pid2, $PORT{'ssh'}) = runsshserver("", $verbose);
-                if($pid <= 0) {
-                    return "failed starting SSH server";
-                }
-                printf ("* pid ssh => %d %d\n", $pid, $pid2) if($verbose);
-                $run{'ssh'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "socks4" || $what eq "socks5" ) {
-            if(!$run{'socks'}) {
-                ($pid, $pid2, $PORT{"socks"}) = runsocksserver("", $verbose);
-                if($pid <= 0) {
-                    return "failed starting socks server";
-                }
-                printf ("* pid socks => %d %d\n", $pid, $pid2) if($verbose);
-                $run{'socks'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "socks5unix") {
-            if(!$run{'socks5unix'}) {
-                ($pid, $pid2) = runsocksserver("2", $verbose, "", "unix");
-                if($pid <= 0) {
-                    return "failed starting socks5unix server";
-                }
-                printf ("* pid socks5unix => %d %d\n", $pid, $pid2) if($verbose);
-                $run{'socks5unix'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "mqtt" ) {
-            if(!$run{'mqtt'}) {
-                ($pid, $pid2) = runmqttserver("", $verbose);
-                if($pid <= 0) {
-                    return "failed starting mqtt server";
-                }
-                printf ("* pid mqtt => %d %d\n", $pid, $pid2) if($verbose);
-                $run{'mqtt'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "http-unix") {
-            if($torture && $run{'http-unix'} &&
-               !responsive_http_server("http", $verbose, "unix", $HTTPUNIXPATH)) {
-                if(stopserver('http-unix')) {
-                    return "failed stopping unresponsive HTTP-unix server";
-                }
-            }
-            if(!$run{'http-unix'}) {
-                my $unused;
-                ($pid, $pid2, $unused) =
-                    runhttpserver("http", $verbose, "unix", $HTTPUNIXPATH);
-                if($pid <= 0) {
-                    return "failed starting HTTP-unix server";
-                }
-                logmsg sprintf("* pid http-unix => %d %d\n", $pid, $pid2)
-                    if($verbose);
-                $run{'http-unix'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "dict") {
-            if(!$run{'dict'}) {
-                ($pid, $pid2, $PORT{"dict"}) = rundictserver($verbose, "");
-                if($pid <= 0) {
-                    return "failed starting DICT server";
-                }
-                logmsg sprintf ("* pid DICT => %d %d\n", $pid, $pid2)
-                    if($verbose);
-                $run{'dict'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "smb") {
-            if(!$run{'smb'}) {
-                ($pid, $pid2, $PORT{"smb"}) = runsmbserver($verbose, "");
-                if($pid <= 0) {
-                    return "failed starting SMB server";
-                }
-                logmsg sprintf ("* pid SMB => %d %d\n", $pid, $pid2)
-                    if($verbose);
-                $run{'smb'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "telnet") {
-            if(!$run{'telnet'}) {
-                ($pid, $pid2, $PORT{"telnet"}) =
-                    runnegtelnetserver($verbose, "");
-                if($pid <= 0) {
-                    return "failed starting neg TELNET server";
-                }
-                logmsg sprintf ("* pid neg TELNET => %d %d\n", $pid, $pid2)
-                    if($verbose);
-                $run{'telnet'}="$pid $pid2";
-            }
-        }
-        elsif($what eq "none") {
-            logmsg "* starts no server\n" if ($verbose);
-        }
-        else {
-            warn "we don't support a server for $what";
-            return "no server for $what";
-        }
-    }
-    return 0;
-}
-
-##############################################################################
-# This function makes sure the right set of server is running for the
-# specified test case. This is a useful design when we run single tests as not
-# all servers need to run then!
-#
-# Returns: a string, blank if everything is fine or a reason why it failed
-#
-sub serverfortest {
-    my ($testnum)=@_;
-
-    my @what = getpart("client", "server");
-
-    if(!$what[0]) {
-        warn "Test case $testnum has no server(s) specified";
-        return "no server specified";
-    }
-
-    for(my $i = scalar(@what) - 1; $i >= 0; $i--) {
-        my $srvrline = $what[$i];
-        chomp $srvrline if($srvrline);
-        if($srvrline =~ /^(\S+)((\s*)(.*))/) {
-            my $server = "${1}";
-            my $lnrest = "${2}";
-            my $tlsext;
-            if($server =~ /^(httptls)(\+)(ext|srp)(\d*)(-ipv6|)$/) {
-                $server = "${1}${4}${5}";
-                $tlsext = uc("TLS-${3}");
-            }
-            if(! grep /^\Q$server\E$/, @protocols) {
-                if(substr($server,0,5) ne "socks") {
-                    if($tlsext) {
-                        return "curl lacks $tlsext support";
-                    }
-                    else {
-                        return "curl lacks $server server support";
-                    }
-                }
-            }
-            $what[$i] = "$server$lnrest" if($tlsext);
-        }
-    }
-
-    return &startservers(@what);
+    return (0, 1);  # state machine must be called again on event
 }
 
 #######################################################################
@@ -5632,6 +1926,19 @@ sub runtimestats {
 }
 
 #######################################################################
+# returns code indicating why a test was skipped
+# 0=unknown test, 1=use test result, 2=ignore test result
+#
+sub ignoreresultcode {
+    my ($testnum)=@_;
+    if(defined $ignoretestcodes{$testnum}) {
+        return $ignoretestcodes{$testnum};
+    }
+    return 0;
+}
+
+
+#######################################################################
 # Check options to this test program
 #
 
@@ -5642,6 +1949,7 @@ if(@ARGV && $ARGV[-1] eq '$TFLAGS') {
     push(@ARGV, split(' ', $ENV{'TFLAGS'})) if defined($ENV{'TFLAGS'});
 }
 
+$valgrind = checktestcmd("valgrind");
 my $number=0;
 my $fromnum=-1;
 my @testthis;
@@ -5652,7 +1960,7 @@ while(@ARGV) {
     }
     elsif ($ARGV[0] eq "-c") {
         # use this path to curl instead of default
-        $DBGCURL=$CURL="\"$ARGV[1]\"";
+        $DBGCURL=$CURL=$ARGV[1];
         shift @ARGV;
     }
     elsif ($ARGV[0] eq "-vc") {
@@ -5662,12 +1970,12 @@ while(@ARGV) {
         # the development version as then it won't be able to run any tests
         # since it can't verify the servers!
 
-        $VCURL="\"$ARGV[1]\"";
+        $VCURL=shell_quote($ARGV[1]);
         shift @ARGV;
     }
     elsif ($ARGV[0] eq "-ac") {
         # use this curl only to talk to APIs (currently only CI test APIs)
-        $ACURL="\"$ARGV[1]\"";
+        $ACURL=shell_quote($ARGV[1]);
         shift @ARGV;
     }
     elsif ($ARGV[0] eq "-d") {
@@ -5775,7 +2083,6 @@ while(@ARGV) {
     }
     elsif($ARGV[0] eq "-P") {
         shift @ARGV;
-        $use_external_proxy=1;
         $proxy_address=$ARGV[0];
     }
     elsif($ARGV[0] eq "-L") {
@@ -5787,6 +2094,14 @@ while(@ARGV) {
         # lists the test case names only
         $listonly=1;
     }
+    elsif($ARGV[0] =~ /^-j(.*)/) {
+        # parallel jobs
+        $jobs=1;
+        my $xtra = $1;
+        if($xtra =~ s/(\d+)$//) {
+            $jobs = $1;
+        }
+    }
     elsif($ARGV[0] eq "-k") {
         # keep stdout and stderr files after tests
         $keepoutfiles=1;
@@ -5794,13 +2109,14 @@ while(@ARGV) {
     elsif($ARGV[0] eq "-r") {
         # run time statistics needs Time::HiRes
         if($Time::HiRes::VERSION) {
-            keys(%timeprepini) = 1000;
-            keys(%timesrvrini) = 1000;
-            keys(%timesrvrend) = 1000;
-            keys(%timetoolini) = 1000;
-            keys(%timetoolend) = 1000;
-            keys(%timesrvrlog) = 1000;
-            keys(%timevrfyend) = 1000;
+            # presize hashes appropriately to hold an entire test run
+            keys(%timeprepini) = 2000;
+            keys(%timesrvrini) = 2000;
+            keys(%timesrvrend) = 2000;
+            keys(%timetoolini) = 2000;
+            keys(%timetoolend) = 2000;
+            keys(%timesrvrlog) = 2000;
+            keys(%timevrfyend) = 2000;
             $timestats=1;
             $fullstats=0;
         }
@@ -5808,13 +2124,14 @@ while(@ARGV) {
     elsif($ARGV[0] eq "-rf") {
         # run time statistics needs Time::HiRes
         if($Time::HiRes::VERSION) {
-            keys(%timeprepini) = 1000;
-            keys(%timesrvrini) = 1000;
-            keys(%timesrvrend) = 1000;
-            keys(%timetoolini) = 1000;
-            keys(%timetoolend) = 1000;
-            keys(%timesrvrlog) = 1000;
-            keys(%timevrfyend) = 1000;
+            # presize hashes appropriately to hold an entire test run
+            keys(%timeprepini) = 2000;
+            keys(%timesrvrini) = 2000;
+            keys(%timesrvrend) = 2000;
+            keys(%timetoolini) = 2000;
+            keys(%timetoolend) = 2000;
+            keys(%timesrvrlog) = 2000;
+            keys(%timevrfyend) = 2000;
             $timestats=1;
             $fullstats=1;
         }
@@ -5842,6 +2159,7 @@ Usage: runtests.pl [options] [test selection(s)]
   -g       run the test case with gdb
   -gw      run the test case with gdb as a windowed application
   -h       this help text
+  -j[N]    spawn this number of processes to run tests (default 0, max. 1)
   -k       keep stdout and stderr files present after tests
   -L path  require an additional perl library file to replace certain functions
   -l       list all test case names/descriptions
@@ -5918,7 +2236,7 @@ if(!$randseed) {
         localtime(time);
     # seed of the month. December 2019 becomes 201912
     $randseed = ($year+1900)*100 + $mon+1;
-    open(my $curlvh, "-|", "$CURL --version 2>/dev/null") ||
+    open(my $curlvh, "-|", shell_quote($CURL) . " --version 2>/dev/null") ||
         die "could not get curl version!";
     my @c = <$curlvh>;
     close($curlvh) || die "could not get curl version!";
@@ -5945,9 +2263,11 @@ if($valgrind) {
 
         # since valgrind 2.1.x, '--tool' option is mandatory
         # use it, if it is supported by the version installed on the system
+        # (this happened in 2003, so we could probably don't need to care about
+        # that old version any longer and just delete this check)
         runclient("valgrind --help 2>&1 | grep -- --tool > /dev/null 2>&1");
-        if (($? >> 8)==0) {
-            $valgrind_tool="--tool=memcheck";
+        if (($? >> 8)) {
+            $valgrind_tool="";
         }
         open(my $curlh, "<", "$CURL");
         my $l = <$curlh>;
@@ -5958,14 +2278,16 @@ if($valgrind) {
         close($curlh);
 
         # valgrind 3 renamed the --logfile option to --log-file!!!
+        # (this happened in 2005, so we could probably don't need to care about
+        # that old version any longer and just delete this check)
         my $ver=join(' ', runclientoutput("valgrind --version"));
         # cut off all but digits and dots
         $ver =~ s/[^0-9.]//g;
 
         if($ver =~ /^(\d+)/) {
             $ver = $1;
-            if($ver >= 3) {
-                $valgrind_logfile="--log-file";
+            if($ver < 3) {
+                $valgrind_logfile="--logfile";
             }
         }
     }
@@ -5984,35 +2306,43 @@ if ($gdbthis) {
     }
 }
 
-$HTTPUNIXPATH    = "http$$.sock"; # HTTP server Unix domain socket path
-$SOCKSUNIXPATH    = $pwd."/socks$$.sock"; # HTTP server Unix domain socket path, absolute path
-
 #######################################################################
 # clear and create logging directory:
 #
 
 cleardir($LOGDIR);
 mkdir($LOGDIR, 0777);
-mkdir($PIDDIR, 0777);
 
 #######################################################################
 # initialize some variables
 #
 
 get_disttests();
-init_serverpidfile_hash();
+if(!$jobs) {
+    # Disable buffered logging with only one test job
+    setlogfunc(\&logmsg);
+}
 
 #######################################################################
 # Output curl version and host info being tested
 #
 
 if(!$listonly) {
-    unlink($memdump);  # remove this if there was one left
     checksystemfeatures();
 }
 
-# globally disabled tests
-disabledtests("$TESTDIR/DISABLED");
+#######################################################################
+# initialize configuration needed to set up servers
+#
+initserverconfig();
+
+if(!$listonly) {
+    # these can only be displayed after initserverconfig() has been called
+    displayserverfeatures();
+
+    # globally disabled tests
+    disabledtests("$TESTDIR/DISABLED");
+}
 
 #######################################################################
 # Fetch all disabled tests, if there are any
@@ -6162,12 +2492,13 @@ sub displaylogcontent {
 
 sub displaylogs {
     my ($testnum)=@_;
-    opendir(DIR, "$LOGDIR") ||
+    my $logdir = getlogdir($testnum);
+    opendir(DIR, "$logdir") ||
         die "can't open dir: $!";
     my @logs = readdir(DIR);
     closedir(DIR);
 
-    logmsg "== Contents of files in the $LOGDIR/ dir after test $testnum\n";
+    logmsg "== Contents of files in the $logdir/ dir after test $testnum\n";
     foreach my $log (sort @logs) {
         if($log =~ /\.(\.|)$/) {
             next; # skip "." and ".."
@@ -6178,7 +2509,7 @@ sub displaylogs {
         if(($log eq "memdump") || ($log eq "core")) {
             next; # skip "memdump" and  "core"
         }
-        if((-d "$LOGDIR/$log") || (! -s "$LOGDIR/$log")) {
+        if((-d "$logdir/$log") || (! -s "$logdir/$log")) {
             next; # skip directory and empty files
         }
         if(($log =~ /^stdout\d+/) && ($log !~ /^stdout$testnum/)) {
@@ -6212,17 +2543,13 @@ sub displaylogs {
             next; # skip test$testnum since it can be very big
         }
         logmsg "=== Start of file $log\n";
-        displaylogcontent("$LOGDIR/$log");
+        displaylogcontent("$logdir/$log");
         logmsg "=== End of file $log\n";
     }
 }
 
 #######################################################################
-# Setup CI Test Run
-citest_starttestrun();
-
-#######################################################################
-# The main test-loop
+# Scan tests to find suitable candidates
 #
 
 my $failed;
@@ -6236,47 +2563,103 @@ my $count=0;
 
 $start = time();
 
+# scan all tests to find ones we should try to run
+my @runtests;
 foreach my $testnum (@at) {
-
     $lasttest = $testnum if($testnum > $lasttest);
-    $count++;
-
-    # execute one test case
-    my $error = singletest($testnum, $count, scalar(@at));
-
-    # Submit the test case result with the CI environment
-    citest_finishtest($testnum, $error);
-
-    if($error < 0) {
-        # not a test we can run
+    my ($why, $errorreturncode) = singletest_shouldrun($testnum);
+    if($why || $listonly) {
+        # Display test name now--test will be completely skipped later
+        my $error = singletest_count($testnum, $why);
         next;
     }
+    $ignoretestcodes{$testnum} = $errorreturncode;
+    push(@runtests, $testnum);
+}
 
-    $total++; # number of tests we've run
+if($listonly) {
+    exit(0);
+}
 
-    if($error>0) {
-        if($error==2) {
-            # ignored test failures
-            $failedign .= "$testnum ";
+#######################################################################
+# Setup CI Test Run
+citest_starttestrun();
+
+#######################################################################
+# Initialize the runner to prepare to run tests
+cleardir($LOGDIR);
+mkdir($LOGDIR, 0777);
+my $runnerid = runner_init($LOGDIR, $jobs);
+
+#######################################################################
+# The main test-loop
+#
+# run through each candidate test and execute it
+nexttest:
+foreach my $testnum (@runtests) {
+    $count++;
+
+    # Loop over state machine waiting for singletest to complete
+    my $again;
+    while () {
+        # check the abort flag
+        if($globalabort) {
+            logmsg "Aborting tests\n";
+            if($again) {
+                logmsg "Waiting for test to finish...\n";
+                # Wait for the last request to complete and throw it away so
+                # that IPC calls & responses stay in sync
+                # TODO: send a signal to the runner to interrupt a long test
+                runnerar(runnerar_ready());
+            }
+            last nexttest;
         }
-        else {
-            $failed.= "$testnum ";
+
+        # execute one test case
+        my $error;
+        ($error, $again) = singletest($runnerid, $testnum, $count, scalar(@runtests));
+        if($again) {
+            # Wait for asynchronous response
+            if(!runnerar_ready(0.05)) {
+                # TODO: If a response isn't ready, this is a chance to do
+                # something else first
+            }
+            next;  # another iteration of the same singletest
         }
-        if($postmortem) {
-            # display all files in $LOGDIR/ in a nice way
-            displaylogs($testnum);
+
+        # Test has completed
+        if($error < 0) {
+            # not a test we can run
+            next nexttest;
         }
-        if($error==2) {
-            $ign++; # ignored test result counter
+
+        $total++; # number of tests we've run
+
+        if($error>0) {
+            if($error==2) {
+                # ignored test failures
+                $failedign .= "$testnum ";
+            }
+            else {
+                $failed.= "$testnum ";
+            }
+            if($postmortem) {
+                # display all files in $LOGDIR/ in a nice way
+                displaylogs($testnum);
+            }
+            if($error==2) {
+                $ign++; # ignored test result counter
+            }
+            elsif(!$anyway) {
+                # a test failed, abort
+                logmsg "\n - abort tests\n";
+                last nexttest;
+            }
         }
-        elsif(!$anyway) {
-            # a test failed, abort
-            logmsg "\n - abort tests\n";
-            last;
+        elsif(!$error) {
+            $ok++; # successful test counter
         }
-    }
-    elsif(!$error) {
-        $ok++; # successful test counter
+        next nexttest;
     }
 
     # loop for next test
@@ -6289,7 +2672,16 @@ my $sofar = time() - $start;
 citest_finishtestrun();
 
 # Tests done, stop the servers
-my $unexpected = stopservers($verbose);
+runnerac_stopservers($runnerid);
+my ($rid, $unexpected, $logs) = runnerar($runnerid);
+logmsg $logs;
+
+# Kill the runner
+# There is a race condition here since we don't know exactly when the runner
+# has finished shutting itself down
+runnerac_shutdown($runnerid);
+undef $runnerid;
+sleep 0;  # give runner a chance to run
 
 my $numskipped = %skipped ? sum values %skipped : 0;
 my $all = $total + $numskipped;

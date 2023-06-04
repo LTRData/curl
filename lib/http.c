@@ -398,7 +398,7 @@ static CURLcode http_output_basic(struct Curl_easy *data, bool proxy)
     goto fail;
   }
 
-  fail:
+fail:
   free(out);
   return result;
 }
@@ -424,7 +424,7 @@ static CURLcode http_output_bearer(struct Curl_easy *data)
     goto fail;
   }
 
-  fail:
+fail:
   return result;
 }
 
@@ -1010,7 +1010,7 @@ CURLcode Curl_http_input_auth(struct Curl_easy *data, bool proxy,
         if(authp->picked == CURLAUTH_NEGOTIATE) {
           CURLcode result = Curl_input_negotiate(data, conn, proxy, auth);
           if(!result) {
-            DEBUGASSERT(!data->req.newurl);
+            free(data->req.newurl);
             data->req.newurl = strdup(data->state.url);
             if(!data->req.newurl)
               return CURLE_OUT_OF_MEMORY;
@@ -1305,7 +1305,7 @@ CURLcode Curl_buffer_send(struct dynbuf *in,
 
   if((conn->handler->flags & PROTOPT_SSL
 #ifndef CURL_DISABLE_PROXY
-      || conn->http_proxy.proxytype == CURLPROXY_HTTPS
+      || IS_HTTPS_PROXY(conn->http_proxy.proxytype)
 #endif
        )
      && conn->httpversion != 20) {
@@ -2112,7 +2112,7 @@ void Curl_http_method(struct Curl_easy *data, struct connectdata *conn,
   Curl_HttpReq httpreq = (Curl_HttpReq)data->state.httpreq;
   const char *request;
   if((conn->handler->protocol&(PROTO_FAMILY_HTTP|CURLPROTO_FTP)) &&
-     data->set.upload)
+     data->state.upload)
     httpreq = HTTPREQ_PUT;
 
   /* Now set the 'request' pointer to the proper request string */
@@ -2163,6 +2163,7 @@ CURLcode Curl_http_useragent(struct Curl_easy *data)
 CURLcode Curl_http_host(struct Curl_easy *data, struct connectdata *conn)
 {
   const char *ptr;
+  struct dynamically_allocated_data *aptr = &data->state.aptr;
   if(!data->state.this_is_a_follow) {
     /* Free to avoid leaking memory on multiple requests */
     free(data->state.first_host);
@@ -2174,7 +2175,7 @@ CURLcode Curl_http_host(struct Curl_easy *data, struct connectdata *conn)
     data->state.first_remote_port = conn->remote_port;
     data->state.first_remote_protocol = conn->handler->protocol;
   }
-  Curl_safefree(data->state.aptr.host);
+  Curl_safefree(aptr->host);
 
   ptr = Curl_checkheaders(data, STRCONST("Host"));
   if(ptr && (!data->state.this_is_a_follow ||
@@ -2209,19 +2210,16 @@ CURLcode Curl_http_host(struct Curl_easy *data, struct connectdata *conn)
         if(colon)
           *colon = 0; /* The host must not include an embedded port number */
       }
-      Curl_safefree(data->state.aptr.cookiehost);
-      data->state.aptr.cookiehost = cookiehost;
+      Curl_safefree(aptr->cookiehost);
+      aptr->cookiehost = cookiehost;
     }
 #endif
 
     if(strcmp("Host:", ptr)) {
-      data->state.aptr.host = aprintf("Host:%s\r\n", &ptr[5]);
-      if(!data->state.aptr.host)
+      aptr->host = aprintf("Host:%s\r\n", &ptr[5]);
+      if(!aptr->host)
         return CURLE_OUT_OF_MEMORY;
     }
-    else
-      /* when clearing the header */
-      data->state.aptr.host = NULL;
   }
   else {
     /* When building Host: headers, we must put the host name within
@@ -2234,18 +2232,14 @@ CURLcode Curl_http_host(struct Curl_easy *data, struct connectdata *conn)
         (conn->remote_port == PORT_HTTP)) )
       /* if(HTTPS on port 443) OR (HTTP on port 80) then don't include
          the port number in the host string */
-      data->state.aptr.host = aprintf("Host: %s%s%s\r\n",
-                                    conn->bits.ipv6_ip?"[":"",
-                                    host,
-                                    conn->bits.ipv6_ip?"]":"");
+      aptr->host = aprintf("Host: %s%s%s\r\n", conn->bits.ipv6_ip?"[":"",
+                           host, conn->bits.ipv6_ip?"]":"");
     else
-      data->state.aptr.host = aprintf("Host: %s%s%s:%d\r\n",
-                                    conn->bits.ipv6_ip?"[":"",
-                                    host,
-                                    conn->bits.ipv6_ip?"]":"",
-                                    conn->remote_port);
+      aptr->host = aprintf("Host: %s%s%s:%d\r\n", conn->bits.ipv6_ip?"[":"",
+                           host, conn->bits.ipv6_ip?"]":"",
+                           conn->remote_port);
 
-    if(!data->state.aptr.host)
+    if(!aptr->host)
       /* without Host: we can't make a nice request */
       return CURLE_OUT_OF_MEMORY;
   }
@@ -2429,7 +2423,7 @@ CURLcode Curl_http_body(struct Curl_easy *data, struct connectdata *conn,
     if((conn->handler->protocol & PROTO_FAMILY_HTTP) &&
        (((httpreq == HTTPREQ_POST_MIME || httpreq == HTTPREQ_POST_FORM) &&
          http->postsize < 0) ||
-        ((data->set.upload || httpreq == HTTPREQ_POST) &&
+        ((data->state.upload || httpreq == HTTPREQ_POST) &&
          data->state.infilesize == -1))) {
       if(conn->bits.authneg)
         /* don't enable chunked during auth neg */
@@ -3142,7 +3136,17 @@ CURLcode Curl_http(struct Curl_easy *data, bool *done)
     DEBUGASSERT(Curl_conn_is_http3(data, conn, FIRSTSOCKET));
     break;
   case CURL_HTTP_VERSION_2:
-    DEBUGASSERT(Curl_conn_is_http2(data, conn, FIRSTSOCKET));
+#ifndef CURL_DISABLE_PROXY
+    if(!Curl_conn_is_http2(data, conn, FIRSTSOCKET) &&
+       conn->bits.proxy && !conn->bits.tunnel_proxy
+      ) {
+      result = Curl_http2_switch(data, conn, FIRSTSOCKET);
+      if(result)
+        return result;
+    }
+    else
+#endif
+      DEBUGASSERT(Curl_conn_is_http2(data, conn, FIRSTSOCKET));
     break;
   case CURL_HTTP_VERSION_1_1:
     /* continue with HTTP/1.1 when explicitly requested */
@@ -3572,7 +3576,7 @@ CURLcode Curl_http_header(struct Curl_easy *data, struct connectdata *conn,
                                          TRUE);
     if(result)
       return result;
-    if(!k->chunk) {
+    if(!k->chunk && data->set.http_transfer_encoding) {
       /* if this isn't chunked, only close can signal the end of this transfer
          as Content-Length is said not to be trusted for transfer-encoding! */
       connclose(conn, "HTTP/1.1 transfer-encoding without chunks");
@@ -4522,37 +4526,46 @@ out:
   return result;
 }
 
-CURLcode Curl_http_req_make(struct http_req **preq,
-                            const char *method,
-                            const char *scheme,
-                            const char *authority,
-                            const char *path)
+/* simple implementation of strndup(), which isn't portable */
+static char *my_strndup(const char *ptr, size_t len)
 {
-  struct http_req *req;
+  char *copy = malloc(len + 1);
+  if(!copy)
+    return NULL;
+  memcpy(copy, ptr, len);
+  copy[len] = '\0';
+  return copy;
+}
+
+CURLcode Curl_http_req_make(struct httpreq **preq,
+                            const char *method, size_t m_len,
+                            const char *scheme, size_t s_len,
+                            const char *authority, size_t a_len,
+                            const char *path, size_t p_len)
+{
+  struct httpreq *req;
   CURLcode result = CURLE_OUT_OF_MEMORY;
-  size_t mlen;
 
   DEBUGASSERT(method);
-  mlen = strlen(method);
-  if(mlen + 1 >= sizeof(req->method))
+  if(m_len + 1 >= sizeof(req->method))
     return CURLE_BAD_FUNCTION_ARGUMENT;
 
   req = calloc(1, sizeof(*req));
   if(!req)
     goto out;
-  memcpy(req->method, method, mlen);
+  memcpy(req->method, method, m_len);
   if(scheme) {
-    req->scheme = strdup(scheme);
+    req->scheme = my_strndup(scheme, s_len);
     if(!req->scheme)
       goto out;
   }
   if(authority) {
-    req->authority = strdup(authority);
+    req->authority = my_strndup(authority, a_len);
     if(!req->authority)
       goto out;
   }
   if(path) {
-    req->path = strdup(path);
+    req->path = my_strndup(path, p_len);
     if(!req->path)
       goto out;
   }
@@ -4567,7 +4580,165 @@ out:
   return result;
 }
 
-void Curl_http_req_free(struct http_req *req)
+static CURLcode req_assign_url_authority(struct httpreq *req, CURLU *url)
+{
+  char *user, *pass, *host, *port;
+  struct dynbuf buf;
+  CURLUcode uc;
+  CURLcode result = CURLE_URL_MALFORMAT;
+
+  user = pass = host = port = NULL;
+  Curl_dyn_init(&buf, DYN_HTTP_REQUEST);
+
+  uc = curl_url_get(url, CURLUPART_HOST, &host, 0);
+  if(uc && uc != CURLUE_NO_HOST)
+    goto out;
+  if(!host) {
+    req->authority = NULL;
+    result = CURLE_OK;
+    goto out;
+  }
+
+  uc = curl_url_get(url, CURLUPART_PORT, &port, CURLU_NO_DEFAULT_PORT);
+  if(uc && uc != CURLUE_NO_PORT)
+    goto out;
+  uc = curl_url_get(url, CURLUPART_USER, &user, 0);
+  if(uc && uc != CURLUE_NO_USER)
+    goto out;
+  if(user) {
+    uc = curl_url_get(url, CURLUPART_PASSWORD, &pass, 0);
+    if(uc && uc != CURLUE_NO_PASSWORD)
+      goto out;
+  }
+
+  if(user) {
+    result = Curl_dyn_add(&buf, user);
+    if(result)
+      goto out;
+    if(pass) {
+      result = Curl_dyn_addf(&buf, ":%s", pass);
+      if(result)
+        goto out;
+    }
+    result = Curl_dyn_add(&buf, "@");
+    if(result)
+      goto out;
+  }
+  result = Curl_dyn_add(&buf, host);
+  if(result)
+    goto out;
+  if(port) {
+    result = Curl_dyn_addf(&buf, ":%s", port);
+    if(result)
+      goto out;
+  }
+  req->authority = strdup(Curl_dyn_ptr(&buf));
+  if(!req->authority)
+    goto out;
+  result = CURLE_OK;
+
+out:
+  free(user);
+  free(pass);
+  free(host);
+  free(port);
+  Curl_dyn_free(&buf);
+  return result;
+}
+
+static CURLcode req_assign_url_path(struct httpreq *req, CURLU *url)
+{
+  char *path, *query;
+  struct dynbuf buf;
+  CURLUcode uc;
+  CURLcode result = CURLE_URL_MALFORMAT;
+
+  path = query = NULL;
+  Curl_dyn_init(&buf, DYN_HTTP_REQUEST);
+
+  uc = curl_url_get(url, CURLUPART_PATH, &path, CURLU_PATH_AS_IS);
+  if(uc)
+    goto out;
+  uc = curl_url_get(url, CURLUPART_QUERY, &query, 0);
+  if(uc && uc != CURLUE_NO_QUERY)
+    goto out;
+
+  if(!path && !query) {
+    req->path = NULL;
+  }
+  else if(path && !query) {
+    req->path = path;
+    path = NULL;
+  }
+  else {
+    if(path) {
+      result = Curl_dyn_add(&buf, path);
+      if(result)
+        goto out;
+    }
+    if(query) {
+      result = Curl_dyn_addf(&buf, "?%s", query);
+      if(result)
+        goto out;
+    }
+    req->path = strdup(Curl_dyn_ptr(&buf));
+    if(!req->path)
+      goto out;
+  }
+  result = CURLE_OK;
+
+out:
+  free(path);
+  free(query);
+  Curl_dyn_free(&buf);
+  return result;
+}
+
+CURLcode Curl_http_req_make2(struct httpreq **preq,
+                             const char *method, size_t m_len,
+                             CURLU *url, const char *scheme_default)
+{
+  struct httpreq *req;
+  CURLcode result = CURLE_OUT_OF_MEMORY;
+  CURLUcode uc;
+
+  DEBUGASSERT(method);
+  if(m_len + 1 >= sizeof(req->method))
+    return CURLE_BAD_FUNCTION_ARGUMENT;
+
+  req = calloc(1, sizeof(*req));
+  if(!req)
+    goto out;
+  memcpy(req->method, method, m_len);
+
+  uc = curl_url_get(url, CURLUPART_SCHEME, &req->scheme, 0);
+  if(uc && uc != CURLUE_NO_SCHEME)
+    goto out;
+  if(!req->scheme && scheme_default) {
+    req->scheme = strdup(scheme_default);
+    if(!req->scheme)
+      goto out;
+  }
+
+  result = req_assign_url_authority(req, url);
+  if(result)
+    goto out;
+  result = req_assign_url_path(req, url);
+  if(result)
+    goto out;
+
+  Curl_dynhds_init(&req->headers, 0, DYN_H2_HEADERS);
+  Curl_dynhds_init(&req->trailers, 0, DYN_H2_TRAILERS);
+  result = CURLE_OK;
+
+out:
+  if(result && req)
+    Curl_http_req_free(req);
+  *preq = result? NULL : req;
+  return result;
+}
+
+void Curl_http_req_free(struct httpreq *req)
 {
   if(req) {
     free(req->scheme);
@@ -4577,6 +4748,97 @@ void Curl_http_req_free(struct http_req *req)
     Curl_dynhds_free(&req->trailers);
     free(req);
   }
+}
+
+struct name_const {
+  const char *name;
+  size_t namelen;
+};
+
+static struct name_const H2_NON_FIELD[] = {
+  { STRCONST("Host") },
+  { STRCONST("Upgrade") },
+  { STRCONST("Connection") },
+  { STRCONST("Keep-Alive") },
+  { STRCONST("Proxy-Connection") },
+  { STRCONST("Transfer-Encoding") },
+};
+
+static bool h2_non_field(const char *name, size_t namelen)
+{
+  size_t i;
+  for(i = 0; i < sizeof(H2_NON_FIELD)/sizeof(H2_NON_FIELD[0]); ++i) {
+    if(namelen < H2_NON_FIELD[i].namelen)
+      return FALSE;
+    if(namelen == H2_NON_FIELD[i].namelen &&
+       strcasecompare(H2_NON_FIELD[i].name, name))
+      return TRUE;
+  }
+  return FALSE;
+}
+
+CURLcode Curl_http_req_to_h2(struct dynhds *h2_headers,
+                             struct httpreq *req, struct Curl_easy *data)
+{
+  const char *scheme = NULL, *authority = NULL;
+  struct dynhds_entry *e;
+  size_t i;
+  CURLcode result;
+
+  DEBUGASSERT(req);
+  DEBUGASSERT(h2_headers);
+
+  if(req->scheme) {
+    scheme = req->scheme;
+  }
+  else if(strcmp("CONNECT", req->method)) {
+    scheme = Curl_checkheaders(data, STRCONST(HTTP_PSEUDO_SCHEME));
+    if(scheme) {
+      scheme += sizeof(HTTP_PSEUDO_SCHEME);
+      while(*scheme && ISBLANK(*scheme))
+        scheme++;
+      infof(data, "set pseudo header %s to %s", HTTP_PSEUDO_SCHEME, scheme);
+    }
+    else {
+      scheme = (data->conn && data->conn->handler->flags & PROTOPT_SSL)?
+                "https" : "http";
+    }
+  }
+
+  if(req->authority) {
+    authority = req->authority;
+  }
+  else {
+    e = Curl_dynhds_get(&req->headers, STRCONST("Host"));
+    if(e)
+      authority = e->value;
+  }
+
+  Curl_dynhds_reset(h2_headers);
+  Curl_dynhds_set_opts(h2_headers, DYNHDS_OPT_LOWERCASE);
+  result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_METHOD),
+                           req->method, strlen(req->method));
+  if(!result && scheme) {
+    result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_SCHEME),
+                             scheme, strlen(scheme));
+  }
+  if(!result && authority) {
+    result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_AUTHORITY),
+                             authority, strlen(authority));
+  }
+  if(!result && req->path) {
+    result = Curl_dynhds_add(h2_headers, STRCONST(HTTP_PSEUDO_PATH),
+                             req->path, strlen(req->path));
+  }
+  for(i = 0; !result && i < Curl_dynhds_count(&req->headers); ++i) {
+    e = Curl_dynhds_getn(&req->headers, i);
+    if(!h2_non_field(e->name, e->namelen)) {
+      result = Curl_dynhds_add(h2_headers, e->name, e->namelen,
+                               e->value, e->valuelen);
+    }
+  }
+
+  return result;
 }
 
 CURLcode Curl_http_resp_make(struct http_resp **presp,

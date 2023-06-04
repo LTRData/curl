@@ -1294,7 +1294,7 @@ int cert_stuff(struct Curl_easy *data,
       /* SSL_CTX_use_certificate_chain_file() only works on PEM files */
       cert_use_result = cert_blob ?
         SSL_CTX_use_certificate_chain_blob(ctx, cert_blob, key_passwd) :
-      SSL_CTX_use_certificate_chain_file(ctx, cert_file);
+        SSL_CTX_use_certificate_chain_file(ctx, cert_file);
       if(cert_use_result != 1) {
         failf(data,
               "could not load PEM client certificate from %s, " OSSL_PACKAGE
@@ -1496,7 +1496,7 @@ int cert_stuff(struct Curl_easy *data,
       }
 
       cert_done = 1;
-    fail:
+fail:
       EVP_PKEY_free(pri);
       X509_free(x509);
       sk_X509_pop_free(ca, X509_free);
@@ -3950,7 +3950,7 @@ static CURLcode ossl_connect_step2(struct Curl_cfilter *cf,
     /* Sets data and len to negotiated protocol, len is 0 if no protocol was
      * negotiated
      */
-    if(cf->conn->bits.tls_enable_alpn) {
+    if(connssl->alpn) {
       const unsigned char *neg_protocol;
       unsigned int len;
       SSL_get0_alpn_selected(backend->handle, &neg_protocol, &len);
@@ -4501,7 +4501,7 @@ static ssize_t ossl_send(struct Curl_cfilter *cf,
   }
   *curlcode = CURLE_OK;
 
-  out:
+out:
   return (ssize_t)rc; /* number of bytes */
 }
 
@@ -4603,7 +4603,7 @@ static ssize_t ossl_recv(struct Curl_cfilter *cf,
     }
   }
 
-  out:
+out:
   return nread;
 }
 

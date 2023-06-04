@@ -38,6 +38,9 @@
 #include "connect.h"
 #include "http2.h"
 #include "http_proxy.h"
+#include "cf-h1-proxy.h"
+#include "cf-h2-proxy.h"
+#include "cf-haproxy.h"
 #include "cf-https-connect.h"
 #include "socks.h"
 #include "strtok.h"
@@ -127,7 +130,7 @@ void Curl_log_cf_debug(struct Curl_easy *data, struct Curl_cfilter *cf,
                        const char *fmt, ...)
 {
   DEBUGASSERT(cf);
-  if(data && Curl_log_cf_is_debug(cf)) {
+  if(data && Curl_log_cf_is_debug(cf, data)) {
     va_list ap;
     int len;
     char buffer[MAXINFO + 2];
@@ -160,6 +163,10 @@ static struct Curl_cftype *cf_types[] = {
 #endif
 #if !defined(CURL_DISABLE_PROXY)
 #if !defined(CURL_DISABLE_HTTP)
+  &Curl_cft_h1_proxy,
+#ifdef USE_NGHTTP2
+  &Curl_cft_h2_proxy,
+#endif
   &Curl_cft_http_proxy,
 #endif /* !CURL_DISABLE_HTTP */
   &Curl_cft_haproxy,

@@ -224,11 +224,11 @@ static CURLcode send_packet_no_gso(struct Curl_cfilter *cf,
   return CURLE_OK;
 }
 
-CURLcode vquic_send_packets(struct Curl_cfilter *cf,
-                            struct Curl_easy *data,
-                            struct cf_quic_ctx *qctx,
-                            const uint8_t *pkt, size_t pktlen, size_t gsolen,
-                            size_t *psent)
+static CURLcode vquic_send_packets(struct Curl_cfilter *cf,
+                                   struct Curl_easy *data,
+                                   struct cf_quic_ctx *qctx,
+                                   const uint8_t *pkt, size_t pktlen,
+                                   size_t gsolen, size_t *psent)
 {
   if(qctx->no_gso && pktlen > gsolen) {
     return send_packet_no_gso(cf, data, qctx, pkt, pktlen, gsolen, psent);
@@ -398,7 +398,6 @@ static CURLcode recvmsg_packets(struct Curl_cfilter *cf,
       ;
     if(nread == -1) {
       if(SOCKERRNO == EAGAIN || SOCKERRNO == EWOULDBLOCK) {
-        DEBUGF(LOG_CF(data, cf, "ingress, recvmsg -> EAGAIN"));
         goto out;
       }
       if(!cf->connected && SOCKERRNO == ECONNREFUSED) {
@@ -432,11 +431,11 @@ out:
 }
 
 #else /* HAVE_SENDMMSG || HAVE_SENDMSG */
-CURLcode recvfrom_packets(struct Curl_cfilter *cf,
-                          struct Curl_easy *data,
-                          struct cf_quic_ctx *qctx,
-                          size_t max_pkts,
-                          vquic_recv_pkt_cb *recv_cb, void *userp)
+static CURLcode recvfrom_packets(struct Curl_cfilter *cf,
+                                 struct Curl_easy *data,
+                                 struct cf_quic_ctx *qctx,
+                                 size_t max_pkts,
+                                 vquic_recv_pkt_cb *recv_cb, void *userp)
 {
   uint8_t buf[64*1024];
   int bufsize = (int)sizeof(buf);
