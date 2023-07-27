@@ -63,6 +63,7 @@
 #include "slist.h"
 #include "mime.h"
 #include "amigaos.h"
+#include "macos.h"
 #include "warnless.h"
 #include "sigpipe.h"
 #include "vssh/ssh.h"
@@ -167,19 +168,20 @@ static CURLcode global_init(long flags, bool memoryfuncs)
     goto fail;
   }
 
-#ifdef WIN32
   if(Curl_win32_init(flags)) {
     DEBUGF(fprintf(stderr, "Error: win32_init failed\n"));
     goto fail;
   }
-#endif
 
-#ifdef __AMIGA__
   if(Curl_amiga_init()) {
     DEBUGF(fprintf(stderr, "Error: Curl_amiga_init failed\n"));
     goto fail;
   }
-#endif
+
+  if(Curl_macos_init()) {
+    DEBUGF(fprintf(stderr, "Error: Curl_macos_init failed\n"));
+    goto fail;
+  }
 
   if(Curl_resolver_global_init()) {
     DEBUGF(fprintf(stderr, "Error: resolver_global_init failed\n"));
@@ -893,6 +895,8 @@ struct Curl_easy *curl_easy_duphandle(struct Curl_easy *data)
   /* the connection cache is setup on demand */
   outcurl->state.conn_cache = NULL;
   outcurl->state.lastconnect_id = -1;
+  outcurl->state.recent_conn_id = -1;
+  outcurl->id = -1;
 
   outcurl->progress.flags    = data->progress.flags;
   outcurl->progress.callback = data->progress.callback;

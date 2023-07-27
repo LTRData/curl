@@ -205,6 +205,7 @@ static const struct LongShort aliases[]= {
   {"$Z", "compressed-ssh",           ARG_BOOL},
   {"$~", "happy-eyeballs-timeout-ms", ARG_STRING},
   {"$!", "retry-all-errors",         ARG_BOOL},
+  {"$%", "trace-ids",                ARG_BOOL},
   {"0",   "http1.0",                 ARG_NONE},
   {"01",  "http1.1",                 ARG_NONE},
   {"02",  "http2",                   ARG_NONE},
@@ -1407,6 +1408,9 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
           return err;
         /* 0 is a valid value for this timeout */
         break;
+      case '%': /* --trace-ids */
+        global->traceids = toggle;
+        break;
       }
       break;
     case '#':
@@ -1434,10 +1438,14 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
         break;
       case '2':
         /* HTTP version 2.0 */
+        if(!feature_http2)
+          return PARAM_LIBCURL_DOESNT_SUPPORT;
         sethttpver(global, config, CURL_HTTP_VERSION_2_0);
         break;
       case '3': /* --http2-prior-knowledge */
         /* HTTP version 2.0 over clean TCP */
+        if(!feature_http2)
+          return PARAM_LIBCURL_DOESNT_SUPPORT;
         sethttpver(global, config, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
         break;
       case '4': /* --http3 */
@@ -1458,6 +1466,8 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
         break;
       case 'a':
         /* --proxy-http2 */
+        if(!feature_httpsproxy || !feature_http2)
+          return PARAM_LIBCURL_DOESNT_SUPPORT;
         config->proxyver = CURLPROXY_HTTPS2;
         break;
       }
