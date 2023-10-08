@@ -421,24 +421,24 @@ static CURLcode quic_ssl_ctx(SSL_CTX **pssl_ctx,
 
   SSL_CTX_set_default_verify_paths(ssl_ctx);
 
-#ifdef OPENSSL_IS_BORINGSSL
-  if(SSL_CTX_set1_curves_list(ssl_ctx, QUIC_GROUPS) != 1) {
-    failf(data, "SSL_CTX_set1_curves_list failed");
-    goto out;
-  }
-#else
-  if(SSL_CTX_set_ciphersuites(ssl_ctx, QUIC_CIPHERS) != 1) {
-    char error_buffer[256];
-    ERR_error_string_n(ERR_get_error(), error_buffer, sizeof(error_buffer));
-    failf(data, "SSL_CTX_set_ciphersuites: %s", error_buffer);
-    goto out;
+  {
+    const char *curves = conn->ssl_config.curves ?
+      conn->ssl_config.curves : QUIC_GROUPS;
+    if(!SSL_CTX_set1_curves_list(ssl_ctx, curves)) {
+      failf(data, "failed setting curves list for QUIC: '%s'", curves);
+      return CURLE_SSL_CIPHER;
+    }
   }
 
-  if(SSL_CTX_set1_groups_list(ssl_ctx, QUIC_GROUPS) != 1) {
-    failf(data, "SSL_CTX_set1_groups_list failed");
-    goto out;
+  {
+    const char *ciphers13 = conn->ssl_config.cipher_list13 ?
+      conn->ssl_config.cipher_list13 : QUIC_CIPHERS;
+    if(SSL_CTX_set_ciphersuites(ssl_ctx, ciphers13) != 1) {
+      failf(data, "failed setting QUIC cipher suite: %s", ciphers13);
+      return CURLE_SSL_CIPHER;
+    }
+    infof(data, "QUIC cipher selection: %s", ciphers13);
   }
-#endif
 
   /* Open the file if a TLS or QUIC backend has not done this before. */
   Curl_tls_keylog_open();
@@ -616,15 +616,19 @@ static CURLcode quic_ssl_ctx(WOLFSSL_CTX **pssl_ctx,
 
   wolfSSL_CTX_set_default_verify_paths(ssl_ctx);
 
-  if(wolfSSL_CTX_set_cipher_list(ssl_ctx, QUIC_CIPHERS) != 1) {
+  if(wolfSSL_CTX_set_cipher_list(ssl_ctx, conn->ssl_config.cipher_list13 ?
+                                 conn->ssl_config.cipher_list13 :
+                                 QUIC_CIPHERS) != 1) {
     char error_buffer[256];
     ERR_error_string_n(ERR_get_error(), error_buffer, sizeof(error_buffer));
-    failf(data, "wolfSSL_CTX_set_cipher_list: %s", error_buffer);
+    failf(data, "wolfSSL failed to set ciphers: %s", error_buffer);
     goto out;
   }
 
-  if(wolfSSL_CTX_set1_groups_list(ssl_ctx, (char *)QUIC_GROUPS) != 1) {
-    failf(data, "SSL_CTX_set1_groups_list failed");
+  if(wolfSSL_CTX_set1_groups_list(ssl_ctx, conn->ssl_config.curves ?
+                                  conn->ssl_config.curves :
+                                  (char *)QUIC_GROUPS) != 1) {
+    failf(data, "wolfSSL failed to set curves");
     goto out;
   }
 
@@ -644,10 +648,13 @@ static CURLcode quic_ssl_ctx(WOLFSSL_CTX **pssl_ctx,
     const char * const ssl_capath = conn->ssl_config.CApath;
 
     wolfSSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
-    if(conn->ssl_config.CAfile || conn->ssl_config.CApath) {
+    if(ssl_cafile || ssl_capath) {
       /* tell wolfSSL where to find CA certificates that are used to verify
          the server's certificate. */
-      if(!wolfSSL_CTX_load_verify_locations(ssl_ctx, ssl_cafile, ssl_capath)) {
+      int rc =
+        wolfSSL_CTX_load_verify_locations_ex(ssl_ctx, ssl_cafile, ssl_capath,
+                                             WOLFSSL_LOAD_FLAG_IGNORE_ERR);
+      if(SSL_SUCCESS != rc) {
         /* Fail if we insist on successfully verifying the server. */
         failf(data, "error setting certificate verify locations:"
               "  CAfile: %s CApath: %s",
