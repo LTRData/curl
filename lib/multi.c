@@ -55,22 +55,6 @@
 #include "curl_memory.h"
 #include "memdebug.h"
 
-#ifdef __APPLE__
-
-#define wakeup_write  write
-#define wakeup_read   read
-#define wakeup_close  close
-#define wakeup_create pipe
-
-#else /* __APPLE__ */
-
-#define wakeup_write     swrite
-#define wakeup_read      sread
-#define wakeup_close     sclose
-#define wakeup_create(p) Curl_socketpair(AF_UNIX, SOCK_STREAM, 0, p)
-
-#endif /* __APPLE__ */
-
 /*
   CURL_SOCKET_HASH_TABLE_SIZE should be a prime number. Increasing it from 97
   to 911 takes on a 32-bit machine 4 x 804 = 3211 more bytes.  Still, every
@@ -3786,7 +3770,7 @@ struct Curl_easy **curl_multi_get_handles(struct Curl_multi *multi)
     struct Curl_easy *e = multi->easyp;
     while(e) {
       DEBUGASSERT(i < multi->num_easy);
-      if(!e->internal)
+      if(!e->state.internal)
         a[i++] = e;
       e = e->next;
     }

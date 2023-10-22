@@ -107,14 +107,14 @@ static int populate_settings(nghttp2_settings_entry *iv,
   return 3;
 }
 
-static size_t populate_binsettings(uint8_t *binsettings,
-                                   struct Curl_easy *data)
+static ssize_t populate_binsettings(uint8_t *binsettings,
+                                    struct Curl_easy *data)
 {
   nghttp2_settings_entry iv[H2_SETTINGS_IV_LEN];
   int ivlen;
 
   ivlen = populate_settings(iv, data);
-  /* this returns number of bytes it wrote */
+  /* this returns number of bytes it wrote or a negative number on error. */
   return nghttp2_pack_settings_payload(binsettings, H2_BINSETTINGS_LEN,
                                        iv, ivlen);
 }
@@ -452,9 +452,14 @@ static CURLcode cf_h2_ctx_init(struct Curl_cfilter *cf,
      * in the H1 request and we upgrade from there. This stream
      * is opened implicitly as #1. */
     uint8_t binsettings[H2_BINSETTINGS_LEN];
-    size_t  binlen; /* length of the binsettings data */
+    ssize_t binlen; /* length of the binsettings data */
 
     binlen = populate_binsettings(binsettings, data);
+    if(binlen <= 0) {
+      failf(data, "nghttp2 unexpectedly failed on pack_settings_payload");
+      result = CURLE_FAILED_INIT;
+      goto out;
+    }
 
     result = http2_data_setup(cf, data, &stream);
     if(result)
@@ -1621,7 +1626,7 @@ CURLcode Curl_http2_request_upgrade(struct dynbuf *req,
   size_t blen;
   struct SingleRequest *k = &data->req;
   uint8_t binsettings[H2_BINSETTINGS_LEN];
-  size_t  binlen; /* length of the binsettings data */
+  ssize_t binlen; /* length of the binsettings data */
 
   binlen = populate_binsettings(binsettings, data);
   if(binlen <= 0) {
@@ -2052,21 +2057,11 @@ static ssize_t h2_submit(struct stream_ctx **pstream,
   /* no longer needed */
   Curl_h1_req_parse_free(&stream->h1);
 
-  nheader = Curl_dynhds_count(&h2_headers);
-  nva = malloc(sizeof(nghttp2_nv) * nheader);
+  nva = Curl_dynhds_to_nva(&h2_headers, &nheader);
   if(!nva) {
     *err = CURLE_OUT_OF_MEMORY;
     nwritten = -1;
     goto out;
-  }
-
-  for(i = 0; i < nheader; ++i) {
-    struct dynhds_entry *e = Curl_dynhds_getn(&h2_headers, i);
-    nva[i].name = (unsigned char *)e->name;
-    nva[i].namelen = e->namelen;
-    nva[i].value = (unsigned char *)e->value;
-    nva[i].valuelen = e->valuelen;
-    nva[i].flags = NGHTTP2_NV_FLAG_NONE;
   }
 
   h2_pri_spec(data, &pri_spec);
