@@ -520,7 +520,7 @@ Vista
 /* ---------------------------------------------------------------- */
 
 #if defined(_MSC_VER) && !defined(_WIN32_WCE)
-#  if (_MSC_VER >= 900) && (_INTEGRAL_MAX_BITS >= 64)
+#  if (_MSC_VER >= 1500) && (_INTEGRAL_MAX_BITS >= 64)
 #    define USE_WIN32_LARGE_FILES
 #  else
 #    define USE_WIN32_SMALL_FILES
