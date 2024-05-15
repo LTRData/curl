@@ -45,7 +45,9 @@ AM_CPPFLAGS = -I$(top_srcdir)/include        \
 
 bin_PROGRAMS = curl
 
+if BUILD_DOCS
 SUBDIRS = ../docs
+endif
 
 if USE_CPPFLAG_CURL_STATICLIB
 AM_CPPFLAGS += -DCURL_STATICLIB
@@ -60,6 +62,8 @@ if HAVE_WINDRES
 curl_SOURCES += $(CURL_RCFILES)
 $(CURL_RCFILES): tool_version.h
 endif
+
+curl_LDFLAGS = $(AM_LDFLAGS) $(CURL_LDFLAGS_BIN)
 
 # This might hold -Werror
 CFLAGS += @CURL_CFLAG_EXTRAS@
@@ -92,7 +96,7 @@ EXTRA_DIST = mkhelp.pl \
  Makefile.mk curl.rc Makefile.inc CMakeLists.txt .checksrc
 
 # Use absolute directory to disable VPATH
-MANPAGE=$(abs_top_builddir)/docs/curl.1
+ASCIIPAGE=$(top_builddir)/docs/cmdline-opts/curl.txt
 MKHELP=$(top_srcdir)/src/mkhelp.pl
 HUGE=tool_hugehelp.c
 
@@ -109,24 +113,24 @@ CS_ = $(CS_0)
 if USE_MANUAL
 # Here are the stuff to create a built-in manual
 
-$(MANPAGE):
+$(ASCIIPAGE):
 	cd $(top_builddir)/docs && $(MAKE)
 
 if HAVE_LIBZ
 # This generates the tool_hugehelp.c file in both uncompressed and
 # compressed formats.
-$(HUGE): $(MANPAGE) $(MKHELP)
+$(HUGE): $(ASCIIPAGE) $(MKHELP)
 	$(HUGECMD) (echo '#include "tool_setup.h"' > $(HUGE);   \
 	echo '#ifndef HAVE_LIBZ' >> $(HUGE);                    \
-	$(NROFF) $(MANPAGE) | $(PERL) $(MKHELP) >> $(HUGE);     \
+	$(PERL) $(MKHELP) < $(ASCIIPAGE) >> $(HUGE);     \
 	echo '#else' >> $(HUGE);                                \
-	$(NROFF) $(MANPAGE) | $(PERL) $(MKHELP) -c >> $(HUGE);  \
+	$(PERL) $(MKHELP) -c < $(ASCIIPAGE) >> $(HUGE);  \
 	echo '#endif /* HAVE_LIBZ */' >> $(HUGE) )
 else # HAVE_LIBZ
 # This generates the tool_hugehelp.c file uncompressed only
-$(HUGE): $(MANPAGE) $(MKHELP)
+$(HUGE): $(ASCIIPAGE) $(MKHELP)
 	$(HUGECMD)(echo '#include "tool_setup.h"' > $(HUGE);    \
-	$(NROFF) $(MANPAGE) | $(PERL) $(MKHELP) >> $(HUGE) )
+	$(PERL) $(MKHELP) < $(ASCIIPAGE) >> $(HUGE) )
 endif
 
 else # USE_MANUAL
@@ -155,7 +159,7 @@ tidy:
 	$(TIDY) $(CURL_CFILES) $(TIDYFLAGS) -- $(curl_CPPFLAGS) $(CPPFLAGS) -DHAVE_CONFIG_H
 
 listhelp:
-	(cd $(top_srcdir)/docs/cmdline-opts && ./gen.pl listhelp *.d) > tool_listhelp.c
+	(cd $(top_srcdir)/docs/cmdline-opts && make listhelp)
 
 if HAVE_WINDRES
 .rc.o:

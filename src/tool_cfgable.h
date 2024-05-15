@@ -68,7 +68,7 @@ struct OperationConfig {
   char *proto_default;
   curl_off_t resume_from;
   char *postfields;
-  curl_off_t postfieldsize;
+  struct curlx_dynbuf postdata;
   char *referer;
   char *query;
   long timeout_ms;
@@ -298,6 +298,12 @@ struct OperationConfig {
   struct State state;             /* for create_transfer() */
   bool rm_partial;                /* on error, remove partially written output
                                      files */
+#ifdef USE_ECH
+  char *ech;                      /* Config set by --ech keywords */
+  char *ech_config;               /* Config set by "--ech esl:" option */
+  char *ech_public;               /* Config set by "--ech pn:" option */
+#endif
+
 };
 
 struct GlobalConfig {

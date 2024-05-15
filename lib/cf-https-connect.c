@@ -102,8 +102,8 @@ struct cf_hc_ctx {
   CURLcode result;          /* overall result */
   struct cf_hc_baller h3_baller;
   struct cf_hc_baller h21_baller;
-  int soft_eyeballs_timeout_ms;
-  int hard_eyeballs_timeout_ms;
+  unsigned int soft_eyeballs_timeout_ms;
+  unsigned int hard_eyeballs_timeout_ms;
 };
 
 static void cf_hc_baller_init(struct cf_hc_baller *b,
@@ -188,9 +188,6 @@ static CURLcode baller_connected(struct Curl_cfilter *cf,
 #endif
     infof(data, "using HTTP/2");
     break;
-  case CURL_HTTP_VERSION_1_1:
-    infof(data, "using HTTP/1.1");
-    break;
   default:
     infof(data, "using HTTP/1.x");
     break;
@@ -269,7 +266,7 @@ static CURLcode cf_hc_connect(struct Curl_cfilter *cf,
       cf_hc_baller_init(&ctx->h21_baller, cf, data, "h21",
                        cf->conn->transport);
     ctx->state = CF_HC_CONNECT;
-    /* FALLTHROUGH */
+    FALLTHROUGH();
 
   case CF_HC_CONNECT:
     if(cf_hc_baller_is_active(&ctx->h3_baller)) {
@@ -458,7 +455,7 @@ static CURLcode cf_hc_create(struct Curl_cfilter **pcf,
   CURLcode result = CURLE_OK;
 
   (void)data;
-  ctx = calloc(sizeof(*ctx), 1);
+  ctx = calloc(1, sizeof(*ctx));
   if(!ctx) {
     result = CURLE_OUT_OF_MEMORY;
     goto out;

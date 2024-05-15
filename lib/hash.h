@@ -54,7 +54,7 @@ struct Curl_hash {
   /* Comparator function to compare keys */
   comp_function comp_func;
   Curl_hash_dtor   dtor;
-  int slots;
+  size_t slots;
   size_t size;
 };
 
@@ -67,12 +67,12 @@ struct Curl_hash_element {
 
 struct Curl_hash_iterator {
   struct Curl_hash *hash;
-  int slot_index;
+  size_t slot_index;
   struct Curl_llist_element *current_element;
 };
 
 void Curl_hash_init(struct Curl_hash *h,
-                    int slots,
+                    size_t slots,
                     hash_function hfunc,
                     comp_function comparator,
                     Curl_hash_dtor dtor);
@@ -97,6 +97,14 @@ Curl_hash_next_element(struct Curl_hash_iterator *iter);
 
 void Curl_hash_print(struct Curl_hash *h,
                      void (*func)(void *));
+
+/* Hash for `curl_off_t` as key */
+void Curl_hash_offt_init(struct Curl_hash *h, size_t slots,
+                         Curl_hash_dtor dtor);
+
+void *Curl_hash_offt_set(struct Curl_hash *h, curl_off_t id, void *elem);
+int Curl_hash_offt_remove(struct Curl_hash *h, curl_off_t id);
+void *Curl_hash_offt_get(struct Curl_hash *h, curl_off_t id);
 
 
 #endif /* HEADER_CURL_HASH_H */

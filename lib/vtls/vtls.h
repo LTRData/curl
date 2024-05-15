@@ -37,6 +37,7 @@ struct Curl_ssl_session;
 #define SSLSUPP_HTTPS_PROXY  (1<<4) /* supports access via HTTPS proxies */
 #define SSLSUPP_TLS13_CIPHERSUITES (1<<5) /* supports TLS 1.3 ciphersuites */
 #define SSLSUPP_CAINFO_BLOB  (1<<6)
+#define SSLSUPP_ECH          (1<<7)
 
 #define ALPN_ACCEPTED "ALPN: server accepted "
 
@@ -64,8 +65,6 @@ CURLsslset Curl_init_sslset_nolock(curl_sslbackend id, const char *name,
 #ifndef CURL_SHA256_DIGEST_LENGTH
 #define CURL_SHA256_DIGEST_LENGTH 32 /* fixed size */
 #endif
-
-char *Curl_ssl_snihost(struct Curl_easy *data, const char *host, size_t *olen);
 
 curl_sslbackend Curl_ssl_backend(void);
 
@@ -105,6 +104,16 @@ bool Curl_ssl_conn_config_match(struct Curl_easy *data,
  * been changed on the easy handle. Will work for `verifypeer`,
  * `verifyhost` and `verifystatus`. */
 void Curl_ssl_conn_config_update(struct Curl_easy *data, bool for_proxy);
+
+/**
+ * Init SSL peer information for filter. Can be called repeatedly.
+ */
+CURLcode Curl_ssl_peer_init(struct ssl_peer *peer,
+                            struct Curl_cfilter *cf, int transport);
+/**
+ * Free all allocated data and reset peer information.
+ */
+void Curl_ssl_peer_cleanup(struct ssl_peer *peer);
 
 #ifdef USE_SSL
 int Curl_ssl_init(void);
@@ -221,7 +230,9 @@ struct ssl_primary_config *
   Curl_ssl_cf_get_primary_config(struct Curl_cfilter *cf);
 
 extern struct Curl_cftype Curl_cft_ssl;
+#ifndef CURL_DISABLE_PROXY
 extern struct Curl_cftype Curl_cft_ssl_proxy;
+#endif
 
 #else /* if not USE_SSL */
 

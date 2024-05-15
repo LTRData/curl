@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: curl
 #
+AAAA
 ABI
 accessor
 ACK
@@ -10,6 +11,7 @@ AIA
 AIX
 al
 Alessandro
+aliasMode
 allocator
 alnum
 ALPN
@@ -39,7 +41,9 @@ auth
 autobuild
 autobuilds
 Autoconf
+autoconf
 Automake
+automake
 Autotools
 autotools
 AVR
@@ -50,6 +54,7 @@ backend
 backends
 backoff
 backticks
+balancers
 Baratov
 basename
 bashrc
@@ -83,6 +88,7 @@ CCC
 CDN
 CentOS
 CFLAGS
+cflags
 CGI's
 CHACHA
 chacha
@@ -105,13 +111,18 @@ CLA
 CLAs
 cleartext
 CLI
+ClientHello
 clientp
 cliget
 closesocket
 CMake
 cmake
+CMake's
 cmake's
+CNAME
+CNAMEs
 CMakeLists
+CNA
 CodeQL
 codeql
 CODESET
@@ -138,10 +149,12 @@ cshrc
 CTRL
 cURL
 CURLcode
+curldown
 CURLE
+CURLECH
 CURLH
-CURLINFO
 curlimages
+CURLINFO
 curlrc
 curltest
 customizable
@@ -157,12 +170,13 @@ dbg
 Debian
 DEBUGBUILD
 decrypt
+decrypting
 deepcode
 DELE
 DER
 deselectable
-Deserialized
 deserialization
+Deserialized
 destructor
 detections
 dev
@@ -183,6 +197,7 @@ DNS
 dns
 dnsop
 DoH
+DoT
 doxygen
 drftpd
 dsa
@@ -194,6 +209,9 @@ EBCDIC
 ECC
 ECDHE
 ECH
+ecl
+ECHConfig
+ECHConfigList
 ECONNREFUSED
 eCOS
 EFnet
@@ -277,14 +295,18 @@ GOST
 GPG
 GPL
 GPLed
+GREASE
+GREASEing
 Greear
 groff
+gsasl
 GSKit
 gskit
 GSS
 GSSAPI
 GTFO
 Guenter
+GUIs
 Gunderson
 Gustafsson
 gzip
@@ -298,6 +320,7 @@ Hards
 Haxx
 haxx
 Heimdal
+HelloRetryRequest
 HELO
 HH
 HMAC
@@ -307,6 +330,7 @@ homebrew
 hostname
 hostnames
 Housley
+HRR
 Hruska
 HSTS
 hsts
@@ -350,11 +374,10 @@ interoperable
 interoperates
 IoT
 ipadOS
-IPFS
-IPNS
-ipld
-trustless
 IPCXN
+IPFS
+ipld
+IPNS
 IPv
 IPv4
 IPv4/6
@@ -420,6 +443,7 @@ libssh
 libSSH
 libssh2
 Libtool
+libtool
 libuv
 libWebSocket
 libz
@@ -444,11 +468,14 @@ Makefile
 makefiles
 malloc
 mallocs
+manpage
+manpages
 maprintf
 Marek
 Mavrogiannopoulos
 Mbed
 mbedTLS
+md
 Meglio
 memdebug
 MesaLink
@@ -459,6 +486,7 @@ Michal
 Micrium
 MicroBlaze
 MicroOS
+middlebox
 mingw
 MinGW
 MINIX
@@ -579,6 +607,7 @@ pkcs
 PKGBUILD
 PKI
 pluggable
+pn
 PolarSSL
 Polhem
 pollset
@@ -614,6 +643,7 @@ py
 pycurl
 pytest
 Pytest
+qname
 QNX
 QoS
 Qubes
@@ -657,6 +687,9 @@ Roadmap
 Rockbox
 roffit
 RPG
+RR
+RRs
+RRtype
 RSA
 RTMP
 rtmp
@@ -752,6 +785,7 @@ stdin
 stdout
 Steinar
 Stenberg
+STLS
 STOR
 strcat
 strcpy
@@ -773,6 +807,7 @@ SunSSH
 superset
 svc
 svcb
+SVCB
 Svyatoslav
 Swisscom
 sws
@@ -790,6 +825,7 @@ Tekniska
 testability
 TFTP
 tftp
+threadsafe
 Tizen
 TLS
 tlsv
@@ -804,6 +840,7 @@ TPF
 TrackMemory
 transcode
 Tru
+trustless
 Tse
 Tsujikawa
 TTL
@@ -826,6 +863,7 @@ unencoded
 unencrypted
 unescape
 Unglobbed
+Unicode
 UNICOS
 unix
 UnixSockets
@@ -880,6 +918,7 @@ WB
 web page
 WebDAV
 WebOS
+webpage
 WebSocket
 WEBSOCKET
 WHATWG
@@ -898,6 +937,7 @@ winssl
 Wireshark
 wolfSSH
 wolfSSL
+ws
 WS
 WSS
 www

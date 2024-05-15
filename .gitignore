@@ -67,3 +67,4 @@ tests/string
 out
 *.pch
 tests/config
+tests/ech-log/

@@ -74,6 +74,17 @@ For example, to insert the word hello 100 times:
 
     %repeat[100 x hello]%
 
+## Include file
+
+This instruction allows a test case to include another file. It is helpful to
+remember that the ordinary variables are expanded before the include happens
+so `%LOGDIR` and the others can be used in the include line.
+
+The file name cannot contain `%` as that letter is used to end the name for
+the include instruction:
+
+    %include filename%
+
 ## Conditional lines
 
 Lines in the test file can be made to appear conditionally on a specific
@@ -511,11 +522,16 @@ Brief test case description, shown when the test runs.
 ### `<setenv>`
     variable1=contents1
     variable2=contents2
+    variable3
 
 Set the given environment variables to the specified value before the actual
-command is run. They are cleared again after the command has been run.
+command is run. They are restored back to their former values again after the
+command has been run.
 
-### `<command [option="no-output/no-include/force-output/binary-trace"] [timeout="secs"][delay="secs"][type="perl/shell"]>`
+If the variable name has no assignment, no `=`, then that variable is just
+deleted.
+
+### `<command [option="no-q/no-output/no-include/force-output/binary-trace"] [timeout="secs"][delay="secs"][type="perl/shell"]>`
 Command line to run.
 
 Note that the URL that gets passed to the server actually controls what data
@@ -545,6 +561,9 @@ otherwise written to verify stdout.
 
 Set `option="no-include"` to prevent the test script to slap on the
 `--include` argument.
+
+Set `option="no-q"` avoid using `-q` as the first argument in the curl command
+line.
 
 Set `option="binary-trace"` to use `--trace` instead of `--trace-ascii` for
 tracing. Suitable for binary-oriented protocols such as MQTT.
